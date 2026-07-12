@@ -1,6 +1,6 @@
 /* Composite Lodge 4076 — service worker.
    Network-first for the app itself (so updates arrive), cache fallback offline. */
-const CACHE = 'lodge4076-v1';
+const CACHE = 'lodge4076-v2';
 const ASSETS = ['./', './index.html', './logo.jpg', './icon-192.png', './icon-512.png', './manifest.json', './sync-config.json'];
 
 self.addEventListener('install', e => {

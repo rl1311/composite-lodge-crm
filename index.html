@@ -137,6 +137,7 @@
    ===================================================================== */
 
 const PASS_HASH  = '349e94234777bc351a11c2cade3da87ef03e42c50ba8f06112a67c9ac3917b35';
+const OWNER_EMAIL = 'rlakhani1@outlook.com';   // the app owner: full permissions, grants committee rights
 const DATA_REPO  = 'rl1311/composite-lodge-data';
 const DATA_API   = 'https://api.github.com/repos/' + DATA_REPO + '/contents/';
 const KEY_STORE  = 'lodge_store_v1';
@@ -172,7 +173,8 @@ function freshStore(){
   SEASONS.forEach(se => MONTHS.forEach(([key]) => {
     meetings[se+'|'+key] = { id:se+'|'+key, season:se, month:key, type:'', notes:'', festive:'', fieldsAt:0, todos:[] };
   }));
-  return { members:[], meetings, events:[], notices:[], photos:{albumUrl:'', updatedAt:0} };
+  return { members:[], meetings, events:[], notices:[], photos:{albumUrl:'', updatedAt:0},
+           lodgeChat:[], perms:{managers:[], updatedAt:0} };
 }
 function load(){
   try{
@@ -197,6 +199,30 @@ function sortedMembers(){
     rankIdx(a.rank)-rankIdx(b.rank) || officeIdx(a.office)-officeIdx(b.office) || a.name.localeCompare(b.name));
 }
 function memberById(id){ return store.members.find(m=>m.id===id); }
+
+/* ---------------- permissions ----------------
+   Owner = the member whose email is OWNER_EMAIL (matched to the signed-in name).
+   Managers = members the owner has granted committee/chat rights in Settings.
+   Until an owner record exists in Members (initial setup), everyone can manage. */
+function currentMember(){
+  if(!session || !session.name) return null;
+  return store.members.find(m=>!m.deleted && m.name.trim().toLowerCase()===session.name.trim().toLowerCase()) || null;
+}
+function ownerMember(){ return store.members.find(m=>!m.deleted && (m.email||'').trim().toLowerCase()===OWNER_EMAIL) || null; }
+function isOwnerRecord(m){ return (m.email||'').trim().toLowerCase()===OWNER_EMAIL; }
+function isOwner(){ const me=currentMember(); return !!(me && (me.email||'').trim().toLowerCase()===OWNER_EMAIL); }
+function canManage(){
+  if(isOwner()) return true;
+  if(!ownerMember()) return true;               // setup phase — no owner record yet
+  const me=currentMember();
+  return !!(me && (store.perms.managers||[]).includes(me.id));
+}
+function onCommittee(e){
+  const me=currentMember();
+  return (e.committee||[]).some(c =>
+    (c.memberId && me && c.memberId===me.id) ||
+    (c.name && session && c.name.trim().toLowerCase()===session.name.trim().toLowerCase()));
+}
 
 /* =====================================================================
    SYNC — shared data in a private GitHub repo (contents API)
@@ -275,6 +301,8 @@ function mergeStores(remote, local){
   });
   out.events = [...evMap.values()];
   out.photos = ((remote.photos||{}).updatedAt||0) >= ((local.photos||{}).updatedAt||0) ? (remote.photos||out.photos) : local.photos;
+  out.lodgeChat = mergeChat(remote.lodgeChat, local.lodgeChat);
+  out.perms = ((remote.perms||{}).updatedAt||0) >= ((local.perms||{}).updatedAt||0) ? (remote.perms||out.perms) : local.perms;
   return out;
 }
 
@@ -383,7 +411,7 @@ const App = {
 
   renderShell(){
     const nav = [ ['members','Members','👤'], ['meetings','Meetings','📖'], ['events','Events','🎉'],
-                  ['notices','Lodge Notices','📌'], ['photos','Photos','📷'], ['settings','Settings','⚙'] ];
+                  ['chat','Lodge Chat','💬'], ['notices','Lodge Notices','📌'], ['photos','Photos','📷'], ['settings','Settings','⚙'] ];
     $('#app').innerHTML = `
       <div id="topbar">
         <button id="burger" onclick="App.drawer=!App.drawer;App.renderShell()" aria-label="Menu">☰</button>
@@ -592,9 +620,11 @@ const App = {
           ${committee.length? committee.map((c,i)=>{
             const m=c.memberId?memberById(c.memberId):null;
             const label = m ? esc(m.name)+(m.phone?' · '+esc(m.phone):'') : esc(c.name)+' *';
-            return `<span class="chip ${m?'':'gold'}">${label} <a href="#" onclick="App.committeeDel('${id}',${i});return false;" style="text-decoration:none;" aria-label="Remove">✕</a></span>`;
+            const del = canManage()? ` <a href="#" onclick="App.committeeDel('${id}',${i});return false;" style="text-decoration:none;" aria-label="Remove">✕</a>`:'';
+            return `<span class="chip ${m?'':'gold'}">${label}${del}</span>`;
           }).join('') : '<span class="muted small">No committee members yet.</span>'}
         </div>
+        ${canManage()? `
         <div class="row" style="margin-top:12px;">
           <select id="cm_member" style="max-width:200px;"><option value="">Add a lodge member…</option>${memberOpts}</select>
           <button class="btn sm" onclick="App.committeeAddMember('${id}')">Add</button>
@@ -602,6 +632,7 @@ const App = {
           <button class="btn ghost sm" onclick="App.committeeAddOutside('${id}')">Add non-member</button>
         </div>
         <div class="muted small" style="margin-top:8px;">Members' contact details come from the Members list. * marks someone who is not a lodge member.</div>
+        ` : `<div class="muted small" style="margin-top:8px;">Only the Secretary (and those given permission in Settings) can change the committee. * marks someone who is not a lodge member.</div>`}
       </div>
       <div class="card"><h4>Event details</h4>
         <div class="grid2 small">
@@ -612,6 +643,7 @@ const App = {
         </div>
       </div>
       <div class="card"><h4>To-do</h4>${todoListHtml(e.todos, 'ev_'+id)}</div>
+      ${(onCommittee(e) || isOwner())? `
       <div class="card"><h4>Committee chat</h4>
         ${(e.chat||[]).length? e.chat.map(c=>`
           <div class="msg ${c.who===session.name?'me':'them'}">
@@ -621,8 +653,11 @@ const App = {
           <input id="chat_text" placeholder="Message the committee…" style="flex:1;" onkeydown="if(event.key==='Enter')App.chatSend('${id}')">
           <button class="btn" onclick="App.chatSend('${id}')">Send</button>
         </div>
-        <div class="muted small" style="margin-top:6px;">Messages reach the others when you (and they) press Sync.</div>
-      </div>`;
+        <div class="muted small" style="margin-top:6px;">Only this event's committee can see this chat. Messages reach the others when you (and they) press Sync.</div>
+      </div>` : `
+      <div class="card"><h4>Committee chat</h4>
+        <div class="muted small">This chat is private to the event's committee. You'll see it here if you are added to the committee.</div>
+      </div>`}`;
   },
   committeeAddMember(id){
     const sel=$('#cm_member'); if(!sel.value) return;
@@ -642,6 +677,29 @@ const App = {
     const t=$('#chat_text').value.trim(); if(!t) return;
     const e=store.events.find(x=>x.id===id);
     (e.chat=e.chat||[]).push({id:uid(), who:session.name, text:t, at:now()});
+    save(); this.renderShell(); doSync(true);
+  },
+
+  /* ================= LODGE CHAT ================= */
+  view_chat(){
+    const msgs = (store.lodgeChat||[]).slice(-200);
+    return `
+      <h2>Lodge Chat</h2>
+      <div class="card">
+        <div class="muted small" style="margin-bottom:8px;">Open to all members of the lodge. Messages reach the brethren when they next press ⟳ Sync.</div>
+        ${msgs.length? msgs.map(c=>`
+          <div class="msg ${c.who===session.name?'me':'them'}">
+            <span class="m">${esc(c.who)} · ${new Date(c.at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>${esc(c.text)}
+          </div>`).join('') : '<div class="muted small">No messages yet — start the conversation.</div>'}
+        <div class="row" style="margin-top:10px;">
+          <input id="lchat_text" placeholder="Message the lodge…" style="flex:1;" onkeydown="if(event.key==='Enter')App.lodgeChatSend()">
+          <button class="btn" onclick="App.lodgeChatSend()">Send</button>
+        </div>
+      </div>`;
+  },
+  lodgeChatSend(){
+    const t=$('#lchat_text').value.trim(); if(!t) return;
+    (store.lodgeChat=store.lodgeChat||[]).push({id:uid(), who:session.name, text:t, at:now()});
     save(); this.renderShell(); doSync(true);
   },
 
@@ -744,6 +802,25 @@ const App = {
       <div class="card"><h4>Sync</h4>
         <p class="small">${lastSyncText()}. ${session.token?'Sync is active — press ⟳ Sync whenever you open the app.':'<b>Sync is not activated yet</b> — data is saved on this device only for now.'}</p>
       </div>
+      ${isOwner()? `
+      <div class="card"><h4>Permissions — who can manage committees</h4>
+        <p class="small">These members can add and remove people on event committees (and therefore who is in each committee chat). Only you can change this list.</p>
+        <div class="row">
+          ${(store.perms.managers||[]).length? (store.perms.managers||[]).map(mid=>{
+            const m=memberById(mid); if(!m||m.deleted) return '';
+            return `<span class="chip gold">${esc(m.name)} <a href="#" onclick="App.permDel('${mid}');return false;" style="text-decoration:none;" aria-label="Remove permission">✕</a></span>`;
+          }).join('') : '<span class="muted small">No one else yet — only you.</span>'}
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <select id="pm_member" style="max-width:220px;"><option value="">Give permission to…</option>
+            ${sortedMembers().filter(m=>!(store.perms.managers||[]).includes(m.id) && !isOwnerRecord(m)).map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}
+          </select>
+          <button class="btn sm" onclick="App.permAdd()">Add</button>
+        </div>
+      </div>` : (!ownerMember()? `
+      <div class="card"><h4>Permissions</h4>
+        <p class="small">Setup note: once the Secretary's own member record (with his email address) is in the Members list, committee changes lock down to him and anyone he grants permission to in this section.</p>
+      </div>`:'')}
       <div class="card"><h4>Photos album link</h4>
         <p class="small">Paste the shared Google Photos album link here once the lodge Google account exists.</p>
         <div class="row">
@@ -761,6 +838,17 @@ const App = {
       <div class="card"><h4>Passcode</h4>
         <p class="small muted">The lodge passcode is shared by all members. To change it, ask the Secretary to update the app.</p>
       </div>`;
+  },
+  permAdd(){
+    const v=$('#pm_member').value; if(!v) return;
+    if(!isOwner()){ toast('Only the Secretary can change permissions.', true); return; }
+    store.perms.managers=(store.perms.managers||[]); store.perms.managers.push(v); store.perms.updatedAt=now();
+    save(); this.renderShell(); toast('Permission granted.'); doSync(true);
+  },
+  permDel(mid){
+    if(!isOwner()){ toast('Only the Secretary can change permissions.', true); return; }
+    store.perms.managers=(store.perms.managers||[]).filter(x=>x!==mid); store.perms.updatedAt=now();
+    save(); this.renderShell(); toast('Permission removed.'); doSync(true);
   },
   saveAlbum(){ store.photos={albumUrl:$('#st_album').value.trim(), updatedAt:now()}; save(); toast('Album link saved.'); doSync(true); },
   switchUser(){ session=null; localStorage.removeItem(KEY_SESS); location.reload(); },
