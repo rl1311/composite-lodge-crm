@@ -2,7 +2,7 @@
    Network-first for the app itself (so updates arrive), cache fallback offline.
    All network fetches bypass the browser HTTP cache ('no-cache' / 'reload') so a
    stale copy can never be re-cached — otherwise updates could lag indefinitely. */
-const CACHE = 'lodge4076-v5';
+const CACHE = 'lodge4076-v6';
 const ASSETS = ['./', './index.html', './logo.jpg', './icon-192.png', './icon-512.png', './manifest.json', './sync-config.json'];
 
 self.addEventListener('install', e => {
@@ -19,9 +19,13 @@ self.addEventListener('fetch', e => {
   if (url.origin !== location.origin) return; // never intercept GitHub API calls
   e.respondWith(
     fetch(e.request, {cache: 'no-cache'}).then(r => {
-      const copy = r.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy));
-      return r;
+      if (r.ok) {           // never cache an error response — a CDN hiccup must not stick
+        const copy = r.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+        return r;
+      }
+      // on an error response, prefer a previously cached good copy
+      return caches.match(e.request, {ignoreSearch: true}).then(hit => hit || r);
     }).catch(() => caches.match(e.request, {ignoreSearch: true}))
   );
 });
