@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Composite Lodge No. 4076</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon-192.png">
+<meta name="theme-color" content="#141B4D">
+<style>
+  :root{
+    --navy-deep:#141B4D; --navy:#1E2A6E; --gold:#C9A227; --gold-bright:#E3B93E;
+    --ink:#20244a; --muted:#5A6080; --ground:#F5F6FA; --surface:#FFFFFF;
+    --line:#E3E6F2; --chip:#EEF0F8; --danger:#B03A2E; --ok:#2E7D32;
+    --serif:'Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif;
+    --sans:'Segoe UI',system-ui,-apple-system,sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; }
+  body{ background:var(--ground); color:var(--ink); font-family:var(--sans); font-size:15px; line-height:1.5; }
+  button{ font-family:var(--sans); font-size:14px; cursor:pointer; border:none; border-radius:8px; }
+  input,select,textarea{ font-family:var(--sans); font-size:14px; color:var(--ink); background:#fff;
+    border:1px solid #C9CEE4; border-radius:8px; padding:9px 12px; width:100%; }
+  input:focus,select:focus,textarea:focus,button:focus-visible{ outline:2px solid var(--gold-bright); outline-offset:1px; }
+  textarea{ min-height:84px; resize:vertical; }
+  a{ color:var(--navy); }
+  h1,h2,h3{ font-family:var(--serif); color:var(--navy-deep); margin:0 0 .4em; }
+
+  /* ---------- App frame: header + left sidebar ---------- */
+  #topbar{ position:fixed; top:0; left:0; right:0; height:56px; background:var(--navy-deep); color:#fff;
+    display:flex; align-items:center; gap:12px; padding:0 14px; z-index:30; }
+  #topbar .logo{ width:36px; height:36px; border-radius:50%; border:2px solid var(--gold); background:#fff; flex:none; }
+  #topbar .name{ font-family:var(--serif); font-size:17px; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #topbar .grow{ flex:1; }
+  #burger{ display:none; background:none; color:#fff; font-size:22px; padding:4px 8px; }
+  .syncbtn{ background:var(--gold-bright); color:var(--navy-deep); font-weight:700; padding:8px 16px; border-radius:8px; flex:none; }
+  .syncbtn:disabled{ opacity:.6; cursor:wait; }
+  #userchip{ background:rgba(255,255,255,.14); border-radius:999px; padding:5px 12px; font-size:12px; white-space:nowrap; }
+
+  #sidebar{ position:fixed; top:56px; left:0; bottom:0; width:210px; background:var(--navy); padding:14px 10px;
+    display:flex; flex-direction:column; gap:2px; z-index:25; }
+  #sidebar button{ background:none; color:#B9C0EA; text-align:left; padding:11px 14px; border-radius:8px;
+    font-size:14.5px; display:flex; gap:10px; align-items:center; width:100%; }
+  #sidebar button.on{ background:rgba(255,255,255,.10); color:#fff; font-weight:600; box-shadow:inset 3px 0 0 var(--gold-bright); }
+  #sidebar button:hover{ color:#fff; }
+  #sidebar .spacer{ flex:1; }
+  #sidebar .synced{ color:#8A93CC; font-size:11px; padding:8px 14px; }
+
+  #main{ margin:56px 0 0 210px; padding:22px; max-width:980px; }
+
+  @media (max-width:760px){
+    #burger{ display:block; }
+    #sidebar{ transform:translateX(-100%); transition:transform .2s; width:230px; box-shadow:4px 0 20px rgba(0,0,0,.25); }
+    #sidebar.open{ transform:none; }
+    #main{ margin-left:0; padding:14px; }
+    #userchip{ display:none; }
+    #topbar .name{ font-size:15px; }
+  }
+  @media (prefers-reduced-motion: reduce){ #sidebar{ transition:none; } }
+
+  /* ---------- Components ---------- */
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+  .card h4{ margin:0 0 10px; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+  .btn{ background:var(--navy); color:#fff; padding:9px 16px; font-weight:600; }
+  .btn.ghost{ background:var(--chip); color:var(--navy); }
+  .btn.gold{ background:var(--gold-bright); color:var(--navy-deep); }
+  .btn.danger{ background:#F7E2DF; color:var(--danger); }
+  .btn.sm{ padding:5px 10px; font-size:12.5px; }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .chip{ display:inline-block; background:var(--chip); color:var(--navy); border-radius:999px; padding:2px 10px; font-size:12px; font-weight:600; }
+  .chip.gold{ background:#F7ECC9; color:#7A6114; }
+  .muted{ color:var(--muted); } .small{ font-size:12.5px; }
+  .tablewrap{ overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:14px; }
+  th{ text-align:left; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); padding:6px 8px; border-bottom:2px solid var(--line); }
+  td{ padding:9px 8px; border-bottom:1px solid var(--chip); white-space:nowrap; vertical-align:middle; }
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:4px; font-weight:600; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:560px){ .grid2{ grid-template-columns:1fr; } }
+  .meetcards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .meetcard{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px; text-align:center; cursor:pointer; }
+  .meetcard:hover{ border-color:var(--gold); }
+  .meetcard b{ font-family:var(--serif); color:var(--navy-deep); font-size:17px; display:block; }
+  .meetcard span{ font-size:12px; color:var(--muted); }
+  .meetcard .type{ display:block; margin-top:6px; font-size:12px; color:#7A6114; font-weight:600; }
+
+  .todo{ display:flex; align-items:center; gap:10px; padding:8px 2px; border-bottom:1px solid var(--chip); flex-wrap:wrap; }
+  .todo:last-child{ border-bottom:none; }
+  .todo input[type=checkbox]{ width:18px; height:18px; accent-color:var(--navy); flex:none; }
+  .todo .who{ font-weight:600; color:var(--navy); min-width:90px; font-size:13px; }
+  .todo .task{ flex:1; min-width:140px; }
+  .todo .due{ margin-left:auto; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .todo .due.late{ color:var(--danger); font-weight:600; }
+  .todo.done .task,.todo.done .who{ opacity:.55; text-decoration:line-through; }
+
+  .msg{ max-width:78%; border-radius:12px; padding:8px 12px; font-size:13.5px; margin:6px 0; width:fit-content; }
+  .msg .m{ display:block; font-size:11px; color:var(--muted); margin-bottom:2px; }
+  .msg.them{ background:var(--chip); border-bottom-left-radius:4px; }
+  .msg.me{ background:var(--navy); color:#fff; margin-left:auto; border-bottom-right-radius:4px; }
+  .msg.me .m{ color:#B9C0EA; }
+
+  .notice{ border-left:4px solid var(--gold-bright); }
+  .empty{ text-align:center; padding:36px 16px; color:var(--muted); }
+  .empty img{ width:70px; opacity:.25; border-radius:50%; margin-bottom:8px; }
+
+  /* ---------- Login ---------- */
+  #login{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+    background:radial-gradient(circle at 50% 20%, #1E2A6E, #141B4D); }
+  #login .box{ background:#fff; border-radius:16px; padding:34px 30px; width:100%; max-width:380px; text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,.35); }
+  #login img{ width:86px; height:86px; border-radius:50%; border:3px solid var(--gold); }
+  #login h1{ font-size:22px; margin:10px 0 2px; }
+  #login .sub{ color:var(--muted); font-size:13px; margin-bottom:18px; }
+  #login .err{ color:var(--danger); font-size:13px; min-height:18px; margin-top:8px; }
+  .namelist{ max-height:250px; overflow-y:auto; text-align:left; border:1px solid var(--line); border-radius:10px; margin-top:10px; }
+  .namelist button{ display:block; width:100%; text-align:left; background:none; padding:10px 14px; border-bottom:1px solid var(--chip); border-radius:0; font-size:14px; }
+  .namelist button:hover{ background:var(--chip); }
+
+  #toast{ position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--navy-deep); color:#fff;
+    padding:10px 20px; border-radius:10px; font-size:13.5px; opacity:0; transition:opacity .25s; z-index:99; pointer-events:none; max-width:90vw; }
+  #toast.show{ opacity:1; }
+  #toast.err{ background:var(--danger); }
+  .photogrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(100px,1fr)); gap:8px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status"></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   Composite Lodge No. 4076 — Lodge Manager
+   Single-file PWA. App hosted on GitHub Pages; shared data synced
+   through a private GitHub repository (see sync-config.json).
+   ===================================================================== */
+
+const PASS_HASH  = '349e94234777bc351a11c2cade3da87ef03e42c50ba8f06112a67c9ac3917b35';
+const DATA_REPO  = 'rl1311/composite-lodge-data';
+const DATA_API   = 'https://api.github.com/repos/' + DATA_REPO + '/contents/';
+const KEY_STORE  = 'lodge_store_v1';
+const KEY_SESS   = 'lodge_session_v1';   // {until, name, token}
+const SEASONS    = ['2026/27','2027/28','2028/29','2029/30','2030/31'];
+const MONTHS     = [ ['october','October','1st meeting',0], ['february','February','2nd meeting',1],
+                     ['april','April','3rd meeting',1], ['june','June','4th meeting',1] ];
+const MEETING_TYPES = ['Initiation','Passing','Raising','Installation','Regular meeting','Emergency meeting','White Table evening'];
+const RANKS   = ['Grand Rank','Provincial Rank','Past Master','Master Mason','Fellow Craft','Entered Apprentice'];
+const OFFICES = ['Worshipful Master','Immediate Past Master','Senior Warden','Junior Warden','Chaplain','Treasurer',
+                 'Secretary','Director of Ceremonies','Senior Deacon','Junior Deacon','Assistant DC','Almoner',
+                 'Charity Steward','Mentor','Inner Guard','Steward','Tyler'];
+
+/* ---------------- utilities ---------------- */
+const $  = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+const now = () => Date.now();
+function toast(msg, isErr){ const t=$('#toast'); t.textContent=msg; t.className='show'+(isErr?' err':''); clearTimeout(t._h); t._h=setTimeout(()=>t.className='',3200); }
+function fmtDate(d){ if(!d) return ''; const x=new Date(d+'T00:00'); return isNaN(x)?d:x.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+function isLate(d){ return d && d < new Date().toISOString().slice(0,10); }
+async function sha256(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function b64encode(str){ const bytes=new TextEncoder().encode(str); let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin); }
+function b64decode(b64){ const bin=atob(b64.replace(/\n/g,'')); const bytes=Uint8Array.from(bin, c=>c.charCodeAt(0)); return new TextDecoder().decode(bytes); }
+
+/* ---------------- data store ---------------- */
+function freshStore(){
+  const meetings = {};
+  SEASONS.forEach(se => MONTHS.forEach(([key]) => {
+    meetings[se+'|'+key] = { id:se+'|'+key, season:se, month:key, type:'', notes:'', festive:'', fieldsAt:0, todos:[] };
+  }));
+  return { members:[], meetings, events:[], notices:[], photos:{albumUrl:'', updatedAt:0} };
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY_STORE);
+    if(raw){ const d = JSON.parse(raw); return {...freshStore(), ...d, meetings:{...freshStore().meetings, ...(d.meetings||{})}}; }
+  }catch(e){}
+  return freshStore();
+}
+function save(){ localStorage.setItem(KEY_STORE, JSON.stringify(store)); }
+let store = load();
+
+/* ---------------- session ---------------- */
+function getSession(){ try{ const s=JSON.parse(localStorage.getItem(KEY_SESS)||'null'); return (s && s.until>now())?s:null; }catch(e){ return null; } }
+function setSession(s){ localStorage.setItem(KEY_SESS, JSON.stringify(s)); }
+let session = getSession();
+
+/* ---------------- rank ordering ---------------- */
+function rankIdx(r){ const i=RANKS.indexOf(r); return i<0?RANKS.length:i; }
+function officeIdx(o){ const i=OFFICES.indexOf(o); return i<0?OFFICES.length:i; }
+function sortedMembers(){
+  return store.members.filter(m=>!m.deleted).slice().sort((a,b)=>
+    rankIdx(a.rank)-rankIdx(b.rank) || officeIdx(a.office)-officeIdx(b.office) || a.name.localeCompare(b.name));
+}
+function memberById(id){ return store.members.find(m=>m.id===id); }
+
+/* =====================================================================
+   SYNC — shared data in a private GitHub repo (contents API)
+   ===================================================================== */
+let syncCfg = null;          // from sync-config.json
+async function loadSyncCfg(){
+  try{ syncCfg = await (await fetch('./sync-config.json?v='+Date.now())).json(); }
+  catch(e){ syncCfg = {configured:false}; }
+}
+async function decryptToken(passcode){
+  if(!syncCfg || !syncCfg.configured) return null;
+  try{
+    const enc = new TextEncoder();
+    const salt = Uint8Array.from(atob(syncCfg.salt), c=>c.charCodeAt(0));
+    const iv   = Uint8Array.from(atob(syncCfg.iv),   c=>c.charCodeAt(0));
+    const ct   = Uint8Array.from(atob(syncCfg.ct),   c=>c.charCodeAt(0));
+    const base = await crypto.subtle.importKey('raw', enc.encode(passcode), 'PBKDF2', false, ['deriveKey']);
+    const key  = await crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:150000, hash:'SHA-256'},
+                   base, {name:'AES-GCM', length:256}, false, ['decrypt']);
+    const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
+    return new TextDecoder().decode(pt);
+  }catch(e){ return null; }
+}
+function ghHeaders(){ return { 'Authorization':'token '+session.token, 'Accept':'application/vnd.github+json' }; }
+async function ghGet(path){
+  const r = await fetch(DATA_API+path+'?ref=main&t='+Date.now(), {headers:ghHeaders(), cache:'no-store'});
+  if(r.status===404) return null;
+  if(!r.ok) throw new Error('GitHub read failed ('+r.status+')');
+  return r.json();
+}
+async function ghPut(path, contentB64, message, sha){
+  const body = {message, content:contentB64, branch:'main'};
+  if(sha) body.sha = sha;
+  const r = await fetch(DATA_API+path, {method:'PUT', headers:ghHeaders(), body:JSON.stringify(body)});
+  if(!r.ok) throw new Error('GitHub write failed ('+r.status+')');
+  return r.json();
+}
+async function ghDelete(path, sha, message){
+  const r = await fetch(DATA_API+path, {method:'DELETE', headers:ghHeaders(),
+    body:JSON.stringify({message, sha, branch:'main'})});
+  return r.ok;
+}
+
+/* ---- merging: newest updatedAt wins; lists merged by id ---- */
+function mergeById(a, b){
+  const map = new Map();
+  (a||[]).forEach(x=>map.set(x.id, x));
+  (b||[]).forEach(x=>{ const cur=map.get(x.id); if(!cur || (x.updatedAt||0)>(cur.updatedAt||0)) map.set(x.id, x); });
+  return [...map.values()];
+}
+function mergeChat(a, b){
+  const map = new Map();
+  (a||[]).concat(b||[]).forEach(x=>map.set(x.id, x));
+  return [...map.values()].sort((x,y)=>x.at-y.at);
+}
+function mergeStores(remote, local){
+  if(!remote) return local;
+  const out = freshStore();
+  out.members = mergeById(remote.members, local.members);
+  out.notices = mergeById(remote.notices, local.notices);
+  // meetings: fixed keys; scalars by fieldsAt, todos by id
+  Object.keys(out.meetings).forEach(k=>{
+    const r=(remote.meetings||{})[k], l=(local.meetings||{})[k], base=out.meetings[k];
+    const scal = (r && l) ? ((r.fieldsAt||0)>=(l.fieldsAt||0)?r:l) : (r||l||base);
+    out.meetings[k] = {...base, type:scal.type||'', notes:scal.notes||'', festive:scal.festive||'',
+      fieldsAt:scal.fieldsAt||0, todos:mergeById(r&&r.todos, l&&l.todos)};
+  });
+  // events: scalars by fieldsAt; todos & chat merged
+  const evMap = new Map();
+  (remote.events||[]).forEach(e=>evMap.set(e.id, e));
+  (local.events||[]).forEach(l=>{
+    const r = evMap.get(l.id);
+    if(!r){ evMap.set(l.id, l); return; }
+    const scal = (r.fieldsAt||0)>=(l.fieldsAt||0)?r:l;
+    evMap.set(l.id, {...scal, todos:mergeById(r.todos,l.todos), chat:mergeChat(r.chat,l.chat)});
+  });
+  out.events = [...evMap.values()];
+  out.photos = ((remote.photos||{}).updatedAt||0) >= ((local.photos||{}).updatedAt||0) ? (remote.photos||out.photos) : local.photos;
+  return out;
+}
+
+let syncing = false;
+async function doSync(silent){
+  if(syncing) return;
+  if(!session || !session.token){
+    if(!silent) toast('Sync is not activated yet — your changes are saved on this device and will sync once activation is complete.', true);
+    return;
+  }
+  syncing = true; updateSyncUi(true);
+  try{
+    // 1. pull main store
+    const file = await ghGet('data.json');
+    let remote = null;
+    if(file) { try{ remote = JSON.parse(b64decode(file.content)); }catch(e){} }
+    let merged = mergeStores(remote, store);
+    // 2. pull in any member-form submissions
+    try{
+      const subs = await ghGet('submissions');
+      if(Array.isArray(subs)){
+        for(const s of subs){
+          if(!s.name.endsWith('.json')) continue;
+          const f = await ghGet('submissions/'+s.name);
+          try{
+            const m = JSON.parse(b64decode(f.content));
+            const existing = merged.members.find(x=>!x.deleted && x.email && m.email && x.email.toLowerCase()===m.email.toLowerCase());
+            if(existing){ Object.assign(existing, {name:m.name, phone:m.phone, email:m.email, rank:m.rank, office:m.office, updatedAt:now()}); }
+            else merged.members.push({id:uid(), name:m.name, phone:m.phone, email:m.email, rank:m.rank, office:m.office, updatedAt:now()});
+          }catch(e){}
+          await ghDelete('submissions/'+s.name, f.sha, 'Merged member form submission');
+        }
+      }
+    }catch(e){ /* submissions folder may not exist yet */ }
+    // 3. push merged
+    await ghPut('data.json', b64encode(JSON.stringify(merged)), 'Sync by '+(session.name||'member'), file?file.sha:undefined);
+    store = merged; save();
+    localStorage.setItem('lodge_last_sync', String(now()));
+    if(!silent) toast('Synced — everyone’s latest changes are in.');
+  }catch(e){
+    toast('Sync failed: '+e.message+'. Check your internet connection and try again.', true);
+  }finally{
+    syncing = false; updateSyncUi(false);
+    App.rerender();
+  }
+}
+function updateSyncUi(busy){
+  const b=$('#syncbtn'); if(b){ b.disabled=busy; b.textContent = busy?'Syncing…':'⟳ Sync'; }
+}
+function lastSyncText(){
+  const t = Number(localStorage.getItem('lodge_last_sync')||0);
+  if(!t) return 'Not synced yet';
+  const d=new Date(t), today=new Date();
+  return 'Last synced: '+(d.toDateString()===today.toDateString()
+    ? 'today '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})
+    : d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
+}
+
+/* =====================================================================
+   TO-DO component (standard format everywhere)
+   ===================================================================== */
+function todoListHtml(todos, ctx){
+  const open = (todos||[]).filter(t=>!t.done && !t.deleted);
+  const done = (todos||[]).filter(t=>t.done && !t.deleted);
+  const memberOpts = sortedMembers().map(m=>`<option value="${esc(m.name)}">`).join('');
+  return `
+    ${open.length? open.map(t=>`
+      <div class="todo">
+        <input type="checkbox" aria-label="Mark done" onchange="App.todoTick('${ctx}','${t.id}')">
+        <span class="who">${esc(t.name)}</span>
+        <span class="task">${esc(t.task)}</span>
+        <span class="due ${isLate(t.due)?'late':''}">${t.due?'Due '+fmtDate(t.due):''}</span>
+        <button class="btn ghost sm" onclick="App.todoDel('${ctx}','${t.id}')" aria-label="Delete task">✕</button>
+      </div>`).join('') : `<div class="muted small" style="padding:6px 2px;">No open tasks.</div>`}
+    <div class="row" style="margin-top:10px;">
+      <input list="memberNames" id="td_name_${ctx}" placeholder="Who" style="max-width:140px;">
+      <input id="td_task_${ctx}" placeholder="Task" style="flex:1; min-width:150px;">
+      <input type="date" id="td_due_${ctx}" style="max-width:150px;">
+      <button class="btn sm" onclick="App.todoAdd('${ctx}')">Add</button>
+      ${done.length?`<button class="btn ghost sm" onclick="App.toggleDone('${ctx}')">${App.showDone[ctx]?'Hide':'View'} completed (${done.length})</button>`:''}
+    </div>
+    <datalist id="memberNames">${memberOpts}</datalist>
+    ${App.showDone[ctx]? done.sort((a,b)=>(b.doneAt||0)-(a.doneAt||0)).map(t=>`
+      <div class="todo done">
+        <input type="checkbox" checked onchange="App.todoUntick('${ctx}','${t.id}')" aria-label="Mark not done">
+        <span class="who">${esc(t.name)}</span>
+        <span class="task">${esc(t.task)}</span>
+        <span class="due">Done ${t.doneAt?fmtDate(new Date(t.doneAt).toISOString().slice(0,10)):''}</span>
+      </div>`).join(''):''}`;
+}
+function todosFor(ctx){
+  if(ctx.startsWith('mt_')) { const m = store.meetings[ctx.slice(3)]; return m ? (m.todos = m.todos||[]) : []; }
+  if(ctx.startsWith('ev_')) { const e = store.events.find(x=>x.id===ctx.slice(3)); return e ? (e.todos = e.todos||[]) : []; }
+  return [];
+}
+
+/* =====================================================================
+   APP (views + actions)
+   ===================================================================== */
+const App = {
+  view:'members', sub:null, season:SEASONS[0], showDone:{}, drawer:false,
+
+  /* ---------- shell ---------- */
+  rerender(){ if(session) this.renderShell(); },
+  go(view, sub){ this.view=view; this.sub=(sub===undefined?null:sub); this.drawer=false; this.renderShell(); window.scrollTo(0,0); },
+
+  renderShell(){
+    const nav = [ ['members','Members','👤'], ['meetings','Meetings','📖'], ['events','Events','🎉'],
+                  ['notices','Lodge Notices','📌'], ['photos','Photos','📷'], ['settings','Settings','⚙'] ];
+    $('#app').innerHTML = `
+      <div id="topbar">
+        <button id="burger" onclick="App.drawer=!App.drawer;App.renderShell()" aria-label="Menu">☰</button>
+        <img class="logo" src="./logo.jpg" alt="">
+        <span class="name">Composite Lodge No. 4076</span>
+        <span class="grow"></span>
+        <button id="syncbtn" class="syncbtn" onclick="doSync()">⟳ Sync</button>
+        <span id="userchip">${esc(session.name||'')}</span>
+      </div>
+      <nav id="sidebar" class="${this.drawer?'open':''}">
+        ${nav.map(([v,label,ic])=>`<button class="${this.view===v?'on':''}" onclick="App.go('${v}')"><span aria-hidden="true">${ic}</span>${label}</button>`).join('')}
+        <div class="spacer"></div>
+        <div class="synced">${lastSyncText()}</div>
+      </nav>
+      <main id="main">${this['view_'+this.view]()}</main>`;
+  },
+
+  /* ================= MEMBERS ================= */
+  view_members(){
+    if(this.sub==='add' || (this.sub&&this.sub.startsWith('edit:'))) return this.memberForm();
+    const ms = sortedMembers();
+    return `
+      <h2>Members</h2>
+      <div class="row" style="margin-bottom:14px;">
+        <button class="btn" onclick="App.go('members','add')">+ Add member</button>
+        <button class="btn gold" onclick="App.shareForm()">Share details form</button>
+        <span class="muted small">Ordered by rank — most senior first</span>
+      </div>
+      <div class="card"><div class="tablewrap"><table>
+        <tr><th>Name</th><th>Contact number</th><th>Email</th><th>Rank</th><th>Office</th><th></th></tr>
+        ${ms.length? ms.map(m=>`<tr>
+          <td><b>${esc(m.name)}</b></td>
+          <td>${m.phone?`<a href="tel:${esc(m.phone)}">${esc(m.phone)}</a>`:'—'}</td>
+          <td>${m.email?`<a href="mailto:${esc(m.email)}">${esc(m.email)}</a>`:'—'}</td>
+          <td>${m.rank?`<span class="chip">${esc(m.rank)}</span>`:'—'}</td>
+          <td>${m.office?`<span class="chip gold">${esc(m.office)}</span>`:'—'}</td>
+          <td><button class="btn ghost sm" onclick="App.go('members','edit:${m.id}')">Edit</button></td>
+        </tr>`).join('') : `<tr><td colspan="6" class="empty">No members yet — add them here, or use <b>Share details form</b> to let the brethren enter their own details.</td></tr>`}
+      </table></div></div>`;
+  },
+  memberForm(){
+    const editing = this.sub && this.sub.startsWith('edit:') ? memberById(this.sub.slice(5)) : null;
+    const m = editing || {name:'',phone:'',email:'',rank:'',office:''};
+    return `
+      <h2>${editing?'Edit member':'Add member'}</h2>
+      <div class="card" style="max-width:520px;">
+        <div class="field"><label>Full name</label><input id="mf_name" value="${esc(m.name)}"></div>
+        <div class="grid2">
+          <div class="field"><label>Contact number</label><input id="mf_phone" value="${esc(m.phone)}"></div>
+          <div class="field"><label>Email address</label><input id="mf_email" type="email" value="${esc(m.email)}"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Rank</label><select id="mf_rank"><option value="">—</option>
+            ${RANKS.map(r=>`<option ${m.rank===r?'selected':''}>${r}</option>`).join('')}</select></div>
+          <div class="field"><label>Office</label><select id="mf_office"><option value="">—</option>
+            ${OFFICES.map(o=>`<option ${m.office===o?'selected':''}>${o}</option>`).join('')}</select></div>
+        </div>
+        <div class="row">
+          <button class="btn" onclick="App.memberSave('${editing?editing.id:''}')">${editing?'Save changes':'Add member'}</button>
+          <button class="btn ghost" onclick="App.go('members')">Cancel</button>
+          ${editing?`<button class="btn danger" onclick="App.memberDel('${editing.id}')">Remove</button>`:''}
+        </div>
+      </div>`;
+  },
+  memberSave(id){
+    const name=$('#mf_name').value.trim();
+    if(!name){ toast('A name is needed.', true); return; }
+    const rec = {name, phone:$('#mf_phone').value.trim(), email:$('#mf_email').value.trim(),
+                 rank:$('#mf_rank').value, office:$('#mf_office').value, updatedAt:now()};
+    if(id){ Object.assign(memberById(id), rec); } else { store.members.push({id:uid(), ...rec}); }
+    save(); this.go('members'); toast(id?'Member updated.':'Member added.');
+  },
+  memberDel(id){
+    if(!confirm('Remove this member from the list?')) return;
+    Object.assign(memberById(id), {deleted:true, updatedAt:now()});
+    save(); this.go('members'); toast('Member removed.');
+  },
+  async shareForm(){
+    const url = location.origin + location.pathname + '?form';
+    const text = 'Please fill in your details for the Composite Lodge 4076 members list: ' + url;
+    if(navigator.share){ try{ await navigator.share({title:'Composite Lodge — member details', text, url}); return; }catch(e){} }
+    try{ await navigator.clipboard.writeText(text); toast('Form link copied — paste it into WhatsApp or an email to the brethren.'); }
+    catch(e){ prompt('Copy this link and send it to the members:', url); }
+  },
+
+  /* ================= MEETINGS ================= */
+  view_meetings(){
+    if(this.sub) return this.meetingDetail(this.sub);
+    return `
+      <h2>Meetings</h2>
+      <div class="row" style="margin-bottom:14px;">
+        <label class="small muted" for="seasonSel">Season</label>
+        <select id="seasonSel" style="max-width:140px;" onchange="App.season=this.value;App.renderShell()">
+          ${SEASONS.map(s=>`<option ${this.season===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="meetcards">
+        ${MONTHS.map(([key,label,ord,yearOffset])=>{
+          const m = store.meetings[this.season+'|'+key];
+          const year = Number(this.season.slice(0,4)) + yearOffset;
+          return `<div class="meetcard" role="button" tabindex="0" onclick="App.go('meetings','${this.season}|${key}')"
+                    onkeydown="if(event.key==='Enter')App.go('meetings','${this.season}|${key}')">
+            <b>${label}</b><span>${ord} · ${year}</span>
+            ${m&&m.type?`<span class="type">${esc(m.type)}</span>`:'<span class="type" style="color:#8A8FB0;font-weight:400;">type not set</span>'}
+          </div>`;}).join('')}
+      </div>`;
+  },
+  meetingDetail(id){
+    const m = store.meetings[id];
+    if(!m) return '<p>Meeting not found.</p>';
+    const [,label,ord,yearOffset] = MONTHS.find(x=>x[0]===m.month);
+    const year = Number(m.season.slice(0,4)) + yearOffset;
+    return `
+      <button class="btn ghost sm" onclick="App.go('meetings')">← ${m.season} meetings</button>
+      <h2 style="margin-top:12px;">${label} ${year} <span class="muted" style="font-size:14px;font-family:var(--sans);">· ${ord} of the ${m.season} season</span></h2>
+      <div class="card">
+        <div class="field"><label>Meeting type</label>
+          <input list="meetingTypes" id="mt_type" value="${esc(m.type)}" placeholder="What type of meeting is this? e.g. Initiation, Installation…"
+            onchange="App.meetingField('${id}','type',this.value)">
+          <datalist id="meetingTypes">${MEETING_TYPES.map(t=>`<option value="${t}">`).join('')}</datalist>
+        </div>
+      </div>
+      <div class="card"><h4>Notes</h4>
+        <textarea id="mt_notes" placeholder="Meeting notes…" onchange="App.meetingField('${id}','notes',this.value)">${esc(m.notes)}</textarea>
+      </div>
+      <div class="card"><h4>To-do</h4>${todoListHtml(m.todos, 'mt_'+id)}</div>
+      <div class="card"><h4>Festive Board notes</h4>
+        <textarea id="mt_festive" placeholder="Menu, seating, wine takings, guests…" onchange="App.meetingField('${id}','festive',this.value)">${esc(m.festive)}</textarea>
+      </div>`;
+  },
+  meetingField(id, field, value){
+    const m = store.meetings[id]; if(!m) return;
+    m[field]=value; m.fieldsAt=now(); save(); toast('Saved.');
+    if(field==='type') this.renderShell();
+  },
+
+  /* ================= EVENTS ================= */
+  view_events(){
+    if(this.sub==='add') return this.eventForm(null);
+    if(this.sub&&this.sub.startsWith('edit:')) return this.eventForm(this.sub.slice(5));
+    if(this.sub) return this.eventDetail(this.sub);
+    const evs = store.events.filter(e=>!e.deleted).sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+    return `
+      <h2>Events</h2>
+      <div class="row" style="margin-bottom:14px;"><button class="btn" onclick="App.go('events','add')">+ New event</button></div>
+      ${evs.length? evs.map(e=>`
+        <div class="card" role="button" tabindex="0" style="cursor:pointer;" onclick="App.go('events','${e.id}')"
+             onkeydown="if(event.key==='Enter')App.go('events','${e.id}')">
+          <div class="row">
+            <b style="font-family:var(--serif);font-size:17px;color:var(--navy-deep);">${esc(e.name)}</b>
+            <span class="grow" style="flex:1;"></span>
+            <span class="muted small">${e.date?fmtDate(e.date):'date TBC'}${e.location?' · '+esc(e.location):''}</span>
+          </div>
+          <div class="row small muted" style="margin-top:6px;">
+            <span>${(e.committee||[]).length} committee</span>·<span>${(e.todos||[]).filter(t=>!t.done&&!t.deleted).length} open tasks</span>·<span>${(e.chat||[]).length} chat messages</span>
+          </div>
+        </div>`).join('') : `<div class="card empty"><img src="./logo.jpg" alt=""><br>No events yet — press <b>+ New event</b> to plan the first one.</div>`}`;
+  },
+  eventForm(id){
+    const e = id ? store.events.find(x=>x.id===id) : {name:'',date:'',time:'',location:'',notes:''};
+    return `
+      <h2>${id?'Edit event':'New event'}</h2>
+      <div class="card" style="max-width:560px;">
+        <div class="field"><label>Event name</label><input id="ef_name" value="${esc(e.name)}" placeholder="e.g. Ladies' Festival 2027"></div>
+        <div class="grid2">
+          <div class="field"><label>Date</label><input type="date" id="ef_date" value="${esc(e.date)}"></div>
+          <div class="field"><label>Time</label><input id="ef_time" value="${esc(e.time)}" placeholder="e.g. 18:30 for 19:00"></div>
+        </div>
+        <div class="field"><label>Location</label><input id="ef_loc" value="${esc(e.location)}"></div>
+        <div class="field"><label>Notes</label><textarea id="ef_notes">${esc(e.notes)}</textarea></div>
+        <div class="row">
+          <button class="btn" onclick="App.eventSave('${id||''}')">${id?'Save changes':'Create event'}</button>
+          <button class="btn ghost" onclick="App.go('events'${id?`,'${id}'`:''})">Cancel</button>
+          ${id?`<button class="btn danger" onclick="App.eventDel('${id}')">Delete event</button>`:''}
+        </div>
+      </div>`;
+  },
+  eventSave(id){
+    const name=$('#ef_name').value.trim();
+    if(!name){ toast('Give the event a name.', true); return; }
+    const rec={name, date:$('#ef_date').value, time:$('#ef_time').value.trim(), location:$('#ef_loc').value.trim(),
+               notes:$('#ef_notes').value, fieldsAt:now()};
+    if(id){ Object.assign(store.events.find(x=>x.id===id), rec); save(); this.go('events', id); }
+    else { const nid=uid(); store.events.push({id:nid, committee:[], todos:[], chat:[], ...rec}); save(); this.go('events', nid); }
+    toast('Event saved.');
+  },
+  eventDel(id){
+    if(!confirm('Delete this event, its to-do list and its chat?')) return;
+    Object.assign(store.events.find(x=>x.id===id), {deleted:true, fieldsAt:now()});
+    save(); this.go('events'); toast('Event deleted.');
+  },
+  eventDetail(id){
+    const e = store.events.find(x=>x.id===id && !x.deleted);
+    if(!e) return '<p>Event not found.</p>';
+    const committee=(e.committee||[]);
+    const memberOpts = sortedMembers().filter(m=>!committee.some(c=>c.memberId===m.id))
+      .map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    return `
+      <button class="btn ghost sm" onclick="App.go('events')">← All events</button>
+      <div class="row" style="margin-top:12px;">
+        <h2 style="margin:0;">${esc(e.name)}</h2>
+        <button class="btn ghost sm" onclick="App.go('events','edit:${id}')">Edit details</button>
+      </div>
+      <div class="card"><h4>Committee</h4>
+        <div class="row">
+          ${committee.length? committee.map((c,i)=>{
+            const m=c.memberId?memberById(c.memberId):null;
+            const label = m ? esc(m.name)+(m.phone?' · '+esc(m.phone):'') : esc(c.name)+' *';
+            return `<span class="chip ${m?'':'gold'}">${label} <a href="#" onclick="App.committeeDel('${id}',${i});return false;" style="text-decoration:none;" aria-label="Remove">✕</a></span>`;
+          }).join('') : '<span class="muted small">No committee members yet.</span>'}
+        </div>
+        <div class="row" style="margin-top:12px;">
+          <select id="cm_member" style="max-width:200px;"><option value="">Add a lodge member…</option>${memberOpts}</select>
+          <button class="btn sm" onclick="App.committeeAddMember('${id}')">Add</button>
+          <input id="cm_outside" placeholder="Or someone outside the lodge" style="max-width:220px;">
+          <button class="btn ghost sm" onclick="App.committeeAddOutside('${id}')">Add non-member</button>
+        </div>
+        <div class="muted small" style="margin-top:8px;">Members' contact details come from the Members list. * marks someone who is not a lodge member.</div>
+      </div>
+      <div class="card"><h4>Event details</h4>
+        <div class="grid2 small">
+          <div><b>Date:</b> ${e.date?fmtDate(e.date):'TBC'}</div>
+          <div><b>Time:</b> ${esc(e.time)||'TBC'}</div>
+          <div style="grid-column:1/-1;"><b>Location:</b> ${esc(e.location)||'TBC'}</div>
+          ${e.notes?`<div style="grid-column:1/-1;white-space:pre-wrap;">${esc(e.notes)}</div>`:''}
+        </div>
+      </div>
+      <div class="card"><h4>To-do</h4>${todoListHtml(e.todos, 'ev_'+id)}</div>
+      <div class="card"><h4>Committee chat</h4>
+        ${(e.chat||[]).length? e.chat.map(c=>`
+          <div class="msg ${c.who===session.name?'me':'them'}">
+            <span class="m">${esc(c.who)} · ${new Date(c.at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>${esc(c.text)}
+          </div>`).join('') : '<div class="muted small">No messages yet.</div>'}
+        <div class="row" style="margin-top:10px;">
+          <input id="chat_text" placeholder="Message the committee…" style="flex:1;" onkeydown="if(event.key==='Enter')App.chatSend('${id}')">
+          <button class="btn" onclick="App.chatSend('${id}')">Send</button>
+        </div>
+        <div class="muted small" style="margin-top:6px;">Messages reach the others when you (and they) press Sync.</div>
+      </div>`;
+  },
+  committeeAddMember(id){
+    const sel=$('#cm_member'); if(!sel.value) return;
+    const e=store.events.find(x=>x.id===id);
+    e.committee.push({memberId:sel.value}); e.fieldsAt=now(); save(); this.renderShell();
+  },
+  committeeAddOutside(id){
+    const v=$('#cm_outside').value.trim(); if(!v) return;
+    const e=store.events.find(x=>x.id===id);
+    e.committee.push({name:v}); e.fieldsAt=now(); save(); this.renderShell();
+  },
+  committeeDel(id,i){
+    const e=store.events.find(x=>x.id===id);
+    e.committee.splice(i,1); e.fieldsAt=now(); save(); this.renderShell();
+  },
+  chatSend(id){
+    const t=$('#chat_text').value.trim(); if(!t) return;
+    const e=store.events.find(x=>x.id===id);
+    (e.chat=e.chat||[]).push({id:uid(), who:session.name, text:t, at:now()});
+    save(); this.renderShell(); doSync(true);
+  },
+
+  /* ================= NOTICES ================= */
+  view_notices(){
+    if(this.sub==='add') return `
+      <h2>New notice</h2>
+      <div class="card" style="max-width:560px;">
+        <div class="field"><label>Title</label><input id="nt_title" placeholder="e.g. Provincial communication — dining fees"></div>
+        <div class="field"><label>Notice</label><textarea id="nt_body" placeholder="The information members need…"></textarea></div>
+        <div class="field"><label>Attach a document (optional, up to 3&nbsp;MB — PDF, Word, image)</label><input type="file" id="nt_file"></div>
+        <div class="field"><label style="display:inline;">Pin to top&nbsp;</label><input type="checkbox" id="nt_pin" style="width:auto;"></div>
+        <div class="row">
+          <button class="btn" onclick="App.noticeSave()">Post notice</button>
+          <button class="btn ghost" onclick="App.go('notices')">Cancel</button>
+        </div>
+      </div>`;
+    const ns = store.notices.filter(n=>!n.deleted).sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0) || b.at-a.at);
+    return `
+      <h2>Lodge Notices</h2>
+      <div class="row" style="margin-bottom:14px;">
+        <button class="btn" onclick="App.go('notices','add')">+ New notice</button>
+        <span class="muted small">Write a notice or attach a document — attachments open with one tap</span>
+      </div>
+      ${ns.length? ns.map(n=>`
+        <div class="card ${n.pinned?'notice':''}">
+          <h4>${n.pinned?'Pinned · ':''}${fmtDate(new Date(n.at).toISOString().slice(0,10))} · posted by ${esc(n.by)}</h4>
+          <b>${esc(n.title)}</b>
+          ${n.body?`<div class="small" style="margin-top:4px;white-space:pre-wrap;">${esc(n.body)}</div>`:''}
+          ${n.attachment?`<div style="margin-top:8px;"><button class="btn ghost sm" onclick="App.noticeOpen('${n.id}')">📎 ${esc(n.attachment.name)}</button></div>`:''}
+          <div class="row" style="margin-top:10px;">
+            <button class="btn ghost sm" onclick="App.noticePin('${n.id}')">${n.pinned?'Unpin':'Pin'}</button>
+            <button class="btn danger sm" onclick="App.noticeDel('${n.id}')">Delete</button>
+          </div>
+        </div>`).join('') : `<div class="card empty"><img src="./logo.jpg" alt=""><br>No notices yet.</div>`}`;
+  },
+  async noticeSave(){
+    const title=$('#nt_title').value.trim();
+    if(!title){ toast('Give the notice a title.', true); return; }
+    const n={id:uid(), title, body:$('#nt_body').value, pinned:$('#nt_pin').checked, at:now(), by:session.name, updatedAt:now()};
+    const f=$('#nt_file').files[0];
+    if(f){
+      if(f.size>3*1024*1024){ toast('That file is over 3 MB — please attach a smaller one.', true); return; }
+      if(!session.token){ toast('Attachments need sync to be activated — posting the notice without it.', true); }
+      else{
+        try{
+          const buf=new Uint8Array(await f.arrayBuffer()); let bin=''; buf.forEach(b=>bin+=String.fromCharCode(b));
+          const path='attachments/'+n.id+'-'+f.name.replace(/[^\w.\-]+/g,'_');
+          await ghPut(path, btoa(bin), 'Attachment: '+f.name);
+          n.attachment={name:f.name, path};
+        }catch(e){ toast('Could not upload the attachment: '+e.message, true); return; }
+      }
+    }
+    store.notices.push(n); save(); this.go('notices'); toast('Notice posted.'); doSync(true);
+  },
+  async noticeOpen(id){
+    const n=store.notices.find(x=>x.id===id); if(!n||!n.attachment) return;
+    if(!session.token){ toast('Sync needs to be activated to open attachments.', true); return; }
+    try{
+      const f=await ghGet(n.attachment.path);
+      const bin=atob(f.content.replace(/\n/g,'')); const bytes=Uint8Array.from(bin,c=>c.charCodeAt(0));
+      const blob=new Blob([bytes]); const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob); a.download=n.attachment.name; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    }catch(e){ toast('Could not open the attachment: '+e.message, true); }
+  },
+  noticePin(id){ const n=store.notices.find(x=>x.id===id); n.pinned=!n.pinned; n.updatedAt=now(); save(); this.renderShell(); },
+  noticeDel(id){
+    if(!confirm('Delete this notice?')) return;
+    const n=store.notices.find(x=>x.id===id); n.deleted=true; n.updatedAt=now(); save(); this.renderShell();
+  },
+
+  /* ================= PHOTOS ================= */
+  view_photos(){
+    const url = store.photos.albumUrl;
+    return `
+      <h2>Photos</h2>
+      ${url? `
+      <div class="card">
+        <h4>Lodge photo album</h4>
+        <p class="small">The lodge album is hosted on the lodge Google account. It opens in Google Photos, where photos are ordered by date and searchable.</p>
+        <a class="btn" style="text-decoration:none;display:inline-block;" href="${esc(url)}" target="_blank" rel="noopener">Open the lodge album ↗</a>
+      </div>` : `
+      <div class="card empty">
+        <img src="./logo.jpg" alt="">
+        <p><b>Waiting for the lodge Google account.</b><br>
+        Once it is set up, a shared Google Photos album will be linked here — everyone will be able to view and add photos, filtered by date and event.</p>
+        <p class="small muted">The Secretary can paste the album link in Settings when it's ready.</p>
+      </div>`}`;
+  },
+
+  /* ================= SETTINGS ================= */
+  view_settings(){
+    return `
+      <h2>Settings</h2>
+      <div class="card"><h4>You</h4>
+        <p class="small">Signed in as <b>${esc(session.name)}</b> — tasks and chat messages you write are attributed to this name.</p>
+        <button class="btn ghost sm" onclick="App.switchUser()">Switch user</button>
+      </div>
+      <div class="card"><h4>Sync</h4>
+        <p class="small">${lastSyncText()}. ${session.token?'Sync is active — press ⟳ Sync whenever you open the app.':'<b>Sync is not activated yet</b> — data is saved on this device only for now.'}</p>
+      </div>
+      <div class="card"><h4>Photos album link</h4>
+        <p class="small">Paste the shared Google Photos album link here once the lodge Google account exists.</p>
+        <div class="row">
+          <input id="st_album" value="${esc(store.photos.albumUrl)}" placeholder="https://photos.app.goo.gl/…" style="max-width:340px;">
+          <button class="btn sm" onclick="App.saveAlbum()">Save</button>
+        </div>
+      </div>
+      <div class="card"><h4>Backup</h4>
+        <div class="row">
+          <button class="btn ghost sm" onclick="App.exportData()">Download backup file</button>
+          <input type="file" id="st_import" style="max-width:240px;">
+          <button class="btn ghost sm" onclick="App.importData()">Restore from backup</button>
+        </div>
+      </div>
+      <div class="card"><h4>Passcode</h4>
+        <p class="small muted">The lodge passcode is shared by all members. To change it, ask the Secretary to update the app.</p>
+      </div>`;
+  },
+  saveAlbum(){ store.photos={albumUrl:$('#st_album').value.trim(), updatedAt:now()}; save(); toast('Album link saved.'); doSync(true); },
+  switchUser(){ session=null; localStorage.removeItem(KEY_SESS); location.reload(); },
+  exportData(){
+    const blob=new Blob([JSON.stringify(store,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='lodge-crm-backup-'+new Date().toISOString().slice(0,10)+'.json'; a.click(); URL.revokeObjectURL(a.href);
+  },
+  async importData(){
+    const f=$('#st_import').files[0]; if(!f){ toast('Choose a backup file first.', true); return; }
+    try{
+      const d=JSON.parse(await f.text());
+      if(!d.members||!d.meetings) throw new Error('bad');
+      if(!confirm('Replace the data on this device with this backup?')) return;
+      store={...freshStore(), ...d}; save(); this.go('members'); toast('Backup restored.');
+    }catch(e){ toast('That file is not a valid backup.', true); }
+  },
+
+  /* ---------- todos (shared) ---------- */
+  todoAdd(ctx){
+    const byId=id=>document.getElementById(id);
+    const name=byId('td_name_'+ctx).value.trim(), task=byId('td_task_'+ctx).value.trim(), due=byId('td_due_'+ctx).value;
+    if(!task){ toast('Type the task first.', true); return; }
+    todosFor(ctx).push({id:uid(), name:name||session.name, task, due, done:false, updatedAt:now()});
+    this.touchCtx(ctx); save(); this.renderShell();
+  },
+  todoTick(ctx,id){ const t=todosFor(ctx).find(x=>x.id===id); t.done=true; t.doneAt=now(); t.updatedAt=now(); save(); this.renderShell(); },
+  todoUntick(ctx,id){ const t=todosFor(ctx).find(x=>x.id===id); t.done=false; t.updatedAt=now(); save(); this.renderShell(); },
+  todoDel(ctx,id){ const t=todosFor(ctx).find(x=>x.id===id); t.deleted=true; t.updatedAt=now(); save(); this.renderShell(); },
+  toggleDone(ctx){ this.showDone[ctx]=!this.showDone[ctx]; this.renderShell(); },
+  touchCtx(ctx){ /* todos carry their own updatedAt; nothing else needed */ },
+};
+
+/* =====================================================================
+   LOGIN + MEMBER FORM MODE
+   ===================================================================== */
+function renderLogin(step, err){
+  const names = sortedMembers();
+  $('#app').innerHTML = `
+    <div id="login"><div class="box">
+      <img src="./logo.jpg" alt="Composite Lodge crest">
+      <h1>Composite Lodge No. 4076</h1>
+      <div class="sub">${step==='pass'?'Enter the lodge passcode':'Who are you? Tasks and chat messages will carry your name.'}</div>
+      ${step==='pass' ? `
+        <input type="password" id="lg_pass" placeholder="Lodge passcode" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')tryPass()">
+        <div class="err">${esc(err||'')}</div>
+        <button class="btn" style="width:100%;" onclick="tryPass()">Enter</button>
+      ` : `
+        <div class="namelist">
+          ${names.length? names.map(m=>`<button onclick="pickName('${esc(m.name)}')">${esc(m.name)}${m.office?' — '+esc(m.office):''}</button>`).join('')
+            : '<div class="small muted" style="padding:12px;">No members in the list yet — type your name below.</div>'}
+        </div>
+        <input id="lg_name" placeholder="Or type your name" style="margin-top:10px;" onkeydown="if(event.key==='Enter')pickName()">
+        <div class="err"></div>
+        <button class="btn" style="width:100%;" onclick="pickName()">Continue</button>
+      `}
+    </div></div>`;
+  if(step==='pass') $('#lg_pass').focus();
+}
+let pendingToken = null;
+async function tryPass(){
+  const v = $('#lg_pass').value;
+  if(await sha256(v) !== PASS_HASH){ renderLogin('pass','That passcode isn’t right — check with the Secretary.'); return; }
+  pendingToken = await decryptToken(v);
+  if(new URLSearchParams(location.search).has('form')) renderMemberForm();
+  else renderLogin('who');
+}
+function pickName(n){
+  const name = n || $('#lg_name').value.trim();
+  if(!name){ return; }
+  session = {name, token:pendingToken, until: now()+30*864e5};
+  setSession(session);
+  App.renderShell();
+  doSync(true);
+}
+
+/* ---- member details form (?form) ---- */
+function renderMemberForm(done){
+  $('#app').innerHTML = `
+    <div id="login"><div class="box" style="text-align:left;">
+      <div style="text-align:center;">
+        <img src="./logo.jpg" alt="">
+        <h1 style="font-size:19px;">Composite Lodge No. 4076</h1>
+        <div class="sub">Member details — takes under a minute</div>
+      </div>
+      ${done? `<p style="text-align:center;">✅ <b>Thank you, Brother.</b><br><span class="small muted">Your details have been received and will appear in the lodge members list.</span></p>`
+      : `
+      <div class="field"><label>Full name</label><input id="fm_name"></div>
+      <div class="field"><label>Contact number</label><input id="fm_phone" type="tel"></div>
+      <div class="field"><label>Email address</label><input id="fm_email" type="email"></div>
+      <div class="field"><label>Rank</label><select id="fm_rank"><option value="">Choose…</option>${RANKS.map(r=>`<option>${r}</option>`).join('')}</select></div>
+      <div class="field"><label>Office (if any)</label><select id="fm_office"><option value="">None</option>${OFFICES.map(o=>`<option>${o}</option>`).join('')}</select></div>
+      <div class="err" id="fm_err" style="color:var(--danger);font-size:13px;min-height:18px;"></div>
+      <button class="btn" style="width:100%;" onclick="submitMemberForm()">Submit</button>`}
+    </div></div>`;
+}
+async function submitMemberForm(){
+  const name=$('#fm_name').value.trim(), phone=$('#fm_phone').value.trim(),
+        email=$('#fm_email').value.trim(), rank=$('#fm_rank').value, office=$('#fm_office').value;
+  if(!name){ $('#fm_err').textContent='Please enter your name.'; return; }
+  if(!pendingToken){ $('#fm_err').textContent='The form isn’t connected yet — please reply to the Secretary with your details instead.'; return; }
+  try{
+    const payload={name, phone, email, rank, office, at:now()};
+    const tmp = session; session={token:pendingToken};
+    await ghPut('submissions/'+uid()+'.json', b64encode(JSON.stringify(payload)), 'Member form: '+name);
+    session = tmp;
+    renderMemberForm(true);
+  }catch(e){ $('#fm_err').textContent='Could not send just now — please check your connection and try again.'; }
+}
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+(async function boot(){
+  await loadSyncCfg();
+  if(new URLSearchParams(location.search).has('form')){ renderLogin('pass'); return; }
+  if(session){ App.renderShell(); doSync(true); }
+  else renderLogin('pass');
+})();
+
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+</script>
+</body>
+</html>
