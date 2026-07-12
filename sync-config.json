@@ -1,1 +1,6 @@
-{ "configured": false }
+{
+  "configured": true,
+  "salt": "EgpeS/Y3+sJBMOUXlbk66A==",
+  "iv": "ci5EjwQviqDPGJ0Q",
+  "ct": "wFfao9xkUIfVjpsKriGncJNkQxUSfZ2Maj9c/ykp8/RdWcxSmBVFLflG0FC4uFAAvlVi6l0nYSlIiZ8KMQlyi4D0N8p5f6NzWx/WnAzHLcqEKwfgm/kx2ny3yCIzU5WoCV/fqi+/c/UICNaT9g=="
+}
