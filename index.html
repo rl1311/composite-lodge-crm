@@ -966,9 +966,21 @@ async function submitMemberForm(){
 (async function boot(){
   await loadSyncCfg();
   if(new URLSearchParams(location.search).has('form')){ renderLogin('pass'); return; }
-  if(session){ App.renderShell(); doSync(true); }
+  if(session){ App.renderShell(); doSync(true); }   // auto-sync on opening
   else renderLogin('pass');
 })();
+
+/* ---- keep in sync automatically ---- */
+let lastAutoSync = 0;
+function autoSync(){
+  if(!session || !session.token || syncing) return;
+  if(now() - lastAutoSync < 60000) return;   // at most once a minute
+  lastAutoSync = now();
+  doSync(true);
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') autoSync(); });
+window.addEventListener('online', autoSync);
+setInterval(()=>{ if(document.visibilityState==='visible') autoSync(); }, 3*60*1000);  // every 3 min while open
 
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
 </script>
