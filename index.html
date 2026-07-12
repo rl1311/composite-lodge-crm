@@ -191,12 +191,9 @@ function getSession(){ try{ const s=JSON.parse(localStorage.getItem(KEY_SESS)||'
 function setSession(s){ localStorage.setItem(KEY_SESS, JSON.stringify(s)); }
 let session = getSession();
 
-/* ---------------- rank ordering ---------------- */
-function rankIdx(r){ const i=RANKS.indexOf(r); return i<0?RANKS.length:i; }
-function officeIdx(o){ const i=OFFICES.indexOf(o); return i<0?OFFICES.length:i; }
+/* ---------------- member ordering: alphabetical by name ---------------- */
 function sortedMembers(){
-  return store.members.filter(m=>!m.deleted).slice().sort((a,b)=>
-    rankIdx(a.rank)-rankIdx(b.rank) || officeIdx(a.office)-officeIdx(b.office) || a.name.localeCompare(b.name));
+  return store.members.filter(m=>!m.deleted).slice().sort((a,b)=>a.name.localeCompare(b.name));
 }
 function memberById(id){ return store.members.find(m=>m.id===id); }
 
@@ -438,7 +435,7 @@ const App = {
       <div class="row" style="margin-bottom:14px;">
         <button class="btn" onclick="App.go('members','add')">+ Add member</button>
         <button class="btn gold" onclick="App.shareForm()">Share details form</button>
-        <span class="muted small">Ordered by rank — most senior first</span>
+        <span class="muted small">Listed alphabetically</span>
       </div>
       <div class="card"><div class="tablewrap"><table>
         <tr><th>Name</th><th>Contact number</th><th>Email</th><th>Rank</th><th>Office</th><th></th></tr>
