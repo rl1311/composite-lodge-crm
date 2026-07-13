@@ -2,7 +2,7 @@
    Network-first for the app itself (so updates arrive), cache fallback offline.
    All network fetches bypass the browser HTTP cache ('no-cache' / 'reload') so a
    stale copy can never be re-cached — otherwise updates could lag indefinitely. */
-const CACHE = 'lodge4076-v7';
+const CACHE = 'lodge4076-v8';
 const ASSETS = ['./', './index.html', './logo.jpg', './icon-192.png', './icon-512.png', './manifest.json', './sync-config.json'];
 
 self.addEventListener('install', e => {
@@ -13,6 +13,13 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys =>
     Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+});
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) {}
+  e.waitUntil(self.registration.showNotification(d.title || 'Composite Lodge No. 4076',
+    { body: d.body || 'You have a new notification in the lodge app.',
+      icon: './icon-192.png', badge: './icon-192.png' }));
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();

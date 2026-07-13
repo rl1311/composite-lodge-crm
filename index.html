@@ -147,6 +147,7 @@
 
 const PASS_HASH  = '349e94234777bc351a11c2cade3da87ef03e42c50ba8f06112a67c9ac3917b35';
 const OWNER_EMAIL = 'rlakhani1@outlook.com';   // the app owner: full permissions, grants committee rights
+const VAPID_PUBLIC = 'BDa2f9ZU_a_qEuTxwyJt25WMKjYAqzw9TJLqh3ieiS78c0LIl9jlJZ6DDGWKXd5nR_R4COcp8U7cULAW56ck23c';
 const DATA_REPO  = 'rl1311/composite-lodge-data';
 const DATA_API   = 'https://api.github.com/repos/' + DATA_REPO + '/contents/';
 const KEY_STORE  = 'lodge_store_v1';
@@ -183,7 +184,7 @@ function freshStore(){
     meetings[se+'|'+key] = { id:se+'|'+key, season:se, month:key, type:'', notes:'', festive:'', fieldsAt:0, todos:[] };
   }));
   return { members:[], meetings, events:[], notices:[], photos:{albumUrl:'', updatedAt:0},
-           lodgeChat:[], perms:{managers:[], updatedAt:0}, todos:[] };
+           lodgeChat:[], perms:{managers:[], updatedAt:0}, todos:[], push:[] };
 }
 function load(){
   try{
@@ -383,7 +384,28 @@ function mergeStores(remote, local){
   out.lodgeChat = mergeChat(remote.lodgeChat, local.lodgeChat);
   out.perms = ((remote.perms||{}).updatedAt||0) >= ((local.perms||{}).updatedAt||0) ? (remote.perms||out.perms) : local.perms;
   out.todos = mergeById(remote.todos, local.todos);
+  out.push = mergeById(remote.push, local.push);
   return out;
+}
+
+/* ids of things that can generate a notification — used to decide whether a
+   sync commit should wake the push sender ([notify] flag) */
+function notifyIds(s){
+  const ids = new Set();
+  if(!s) return ids;
+  const todo = t=>ids.add('t'+t.id);
+  (s.todos||[]).forEach(todo);
+  Object.values(s.meetings||{}).forEach(m=>(m.todos||[]).forEach(todo));
+  (s.events||[]).forEach(e=>{ (e.todos||[]).forEach(todo); (e.chat||[]).forEach(c=>ids.add('c'+c.id)); });
+  (s.lodgeChat||[]).forEach(c=>ids.add('c'+c.id));
+  (s.notices||[]).forEach(n=>ids.add('n'+n.id));
+  ids.add('p'+((s.photos||{}).updatedAt||0));
+  return ids;
+}
+function hasNewNotifiable(remote, merged){
+  const before = notifyIds(remote);
+  for(const id of notifyIds(merged)) if(!before.has(id)) return true;
+  return false;
 }
 
 let syncing = false;
@@ -417,8 +439,19 @@ async function doSync(silent){
         }
       }
     }catch(e){ /* submissions folder may not exist yet */ }
-    // 3. push merged
-    await ghPut('data.json', b64encode(JSON.stringify(merged)), 'Sync by '+(session.name||'member'), file?file.sha:undefined);
+    // 3. keep this device's push registration pointing at the current user
+    const did = localStorage.getItem('lodge_device_id');
+    if(did){
+      const pe = (merged.push||[]).find(x=>x.id===did);
+      if(pe && pe.name !== session.name){ pe.name = session.name; pe.updatedAt = now(); }
+    }
+    // 4. push merged — but only when something actually changed
+    const mergedText = JSON.stringify(merged);
+    const remoteText = file ? b64decode(file.content) : null;
+    if(mergedText !== remoteText){
+      const flag = hasNewNotifiable(remote, merged) ? ' [notify]' : '';
+      await ghPut('data.json', b64encode(mergedText), 'Sync by '+(session.name||'member')+flag, file?file.sha:undefined);
+    }
     store = merged; save();
     localStorage.setItem('lodge_last_sync', String(now()));
     if(!silent) toast('Synced — everyone’s latest changes are in.');
@@ -945,11 +978,18 @@ const App = {
         <p class="small">${lastSyncText()}. ${session.token?'Sync is active — it runs automatically on opening and every few minutes.':'<b>Sync is not activated yet</b> — data is saved on this device only for now.'}</p>
       </div>
       <div class="card"><h4>Device notifications</h4>
-        <p class="small">Show a pop-up on this device when new notifications arrive while the app is open in the background. (Without this, the 🔔 bell still collects everything.)</p>
-        ${!('Notification' in window)? '<p class="small muted">Not supported on this device.</p>'
-          : Notification.permission==='granted'? '<p class="small" style="color:var(--ok);">✓ Enabled on this device.</p>'
-          : Notification.permission==='denied'? '<p class="small muted">Blocked in your browser settings — allow notifications for this site to enable.</p>'
-          : `<button class="btn sm" onclick="Notification.requestPermission().then(()=>App.renderShell())">Enable</button>`}
+        <p class="small">Get a notification on this device — even when the app is closed — whenever a brother gives you a task, tags you, or posts a notice. (Without this, the 🔔 bell still collects everything for when you open the app.)</p>
+        ${(()=>{
+          if(!('Notification' in window) || !('PushManager' in window))
+            return '<p class="small muted">Not supported in this browser. On iPhone: install the app to your Home Screen first (Share → Add to Home Screen), then enable this inside the installed app.</p>';
+          const did = localStorage.getItem('lodge_device_id');
+          const registered = did && (store.push||[]).some(x=>x.id===did);
+          if(Notification.permission==='granted' && registered)
+            return '<p class="small" style="color:var(--ok);">✓ Enabled on this device.</p>';
+          if(Notification.permission==='denied')
+            return '<p class="small muted">Blocked in your browser settings — allow notifications for this site, then return here.</p>';
+          return `<button class="btn sm" onclick="App.enablePush()">Enable on this device</button>`;
+        })()}
       </div>
       ${isOwner()? `
       <div class="card"><h4>Permissions — who can manage committees</h4>
@@ -987,6 +1027,26 @@ const App = {
       <div class="card"><h4>Passcode</h4>
         <p class="small muted">The lodge passcode is shared by all members. To change it, ask the Secretary to update the app.</p>
       </div>`;
+  },
+  async enablePush(){
+    try{
+      if(!('Notification' in window) || !('PushManager' in window)){
+        toast('Push isn’t supported in this browser. On iPhone, install the app to your Home Screen first.', true); return;
+      }
+      const perm = await Notification.requestPermission();
+      if(perm !== 'granted'){ this.renderShell(); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({userVisibleOnly:true,
+        applicationServerKey: (b64=>{const pad='='.repeat((4-b64.length%4)%4); const raw=atob((b64+pad).replace(/-/g,'+').replace(/_/g,'/'));
+          return Uint8Array.from(raw, c=>c.charCodeAt(0));})(VAPID_PUBLIC)});
+      let did = localStorage.getItem('lodge_device_id');
+      if(!did){ did = uid(); localStorage.setItem('lodge_device_id', did); }
+      store.push = store.push||[];
+      const rec = {id:did, name:session.name, sub:sub.toJSON(), updatedAt:now()};
+      const existing = store.push.find(x=>x.id===did);
+      if(existing) Object.assign(existing, rec); else store.push.push(rec);
+      save(); this.renderShell(); toast('Notifications enabled on this device.'); doSync(true);
+    }catch(e){ toast('Could not enable notifications: '+e.message, true); }
   },
   permAdd(){
     const v=$('#pm_member').value; if(!v) return;
