@@ -36,6 +36,15 @@
   .syncbtn{ background:var(--gold-bright); color:var(--navy-deep); font-weight:700; padding:8px 16px; border-radius:8px; flex:none; }
   .syncbtn:disabled{ opacity:.6; cursor:wait; }
   #userchip{ background:rgba(255,255,255,.14); border-radius:999px; padding:5px 12px; font-size:12px; white-space:nowrap; }
+  #bell{ position:relative; background:none; color:#fff; font-size:19px; padding:4px 8px; flex:none; }
+  #bell.on{ background:rgba(255,255,255,.14); border-radius:8px; }
+  .nbadge{ position:absolute; top:-2px; right:-2px; background:#D93025; color:#fff; font-size:10px; font-weight:700;
+    border-radius:999px; padding:1px 5px; min-width:16px; text-align:center; line-height:1.4; }
+  #mentionbox{ position:fixed; z-index:60; background:var(--surface); border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 8px 24px rgba(20,27,77,.18); width:220px; overflow:hidden; }
+  #mentionbox button{ display:block; width:100%; text-align:left; background:none; padding:9px 14px;
+    border-bottom:1px solid var(--chip); border-radius:0; font-size:13.5px; color:var(--navy); font-weight:600; }
+  #mentionbox button:hover{ background:var(--chip); }
 
   #sidebar{ position:fixed; top:56px; left:0; bottom:0; width:210px; background:var(--navy); padding:14px 10px;
     display:flex; flex-direction:column; gap:2px; z-index:25; }
@@ -174,7 +183,7 @@ function freshStore(){
     meetings[se+'|'+key] = { id:se+'|'+key, season:se, month:key, type:'', notes:'', festive:'', fieldsAt:0, todos:[] };
   }));
   return { members:[], meetings, events:[], notices:[], photos:{albumUrl:'', updatedAt:0},
-           lodgeChat:[], perms:{managers:[], updatedAt:0} };
+           lodgeChat:[], perms:{managers:[], updatedAt:0}, todos:[] };
 }
 function load(){
   try{
@@ -219,6 +228,79 @@ function onCommittee(e){
   return (e.committee||[]).some(c =>
     (c.memberId && me && c.memberId===me.id) ||
     (c.name && session && c.name.trim().toLowerCase()===session.name.trim().toLowerCase()));
+}
+
+/* ---------------- @mentions ---------------- */
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function rich(text){
+  // escape first, then highlight @Member Name tokens in gold
+  let html = esc(text);
+  sortedMembers().slice().sort((a,b)=>b.name.length-a.name.length).forEach(m=>{
+    html = html.replace(new RegExp('@'+escRe(esc(m.name)), 'gi'),
+      x=>`<span style="background:#F7ECC9;color:#7A6114;border-radius:6px;padding:0 4px;font-weight:600;">${x}</span>`);
+  });
+  return html;
+}
+function textMentions(text, name){
+  return !!text && text.toLowerCase().includes('@'+name.trim().toLowerCase());
+}
+
+/* ---------------- notifications ----------------
+   Computed from the shared data each render; read-state kept per device. */
+const KEY_SEEN = 'lodge_notif_seen_v1';
+function getSeen(){ try{ return new Set(JSON.parse(localStorage.getItem(KEY_SEEN)||'[]')); }catch(e){ return new Set(); } }
+function markSeen(ids){
+  const s=getSeen(); ids.forEach(id=>s.add(id));
+  localStorage.setItem(KEY_SEEN, JSON.stringify([...s].slice(-400)));
+}
+function buildNotifications(){
+  if(!session) return [];
+  const meName = session.name.trim().toLowerCase();
+  const notMe = who => (who||'').trim().toLowerCase() !== meName;
+  const out = [];
+  const push = (id,icon,text,at,view,sub)=>out.push({id,icon,text,at:at||0,view,sub});
+  // tasks assigned to me, and mentions inside tasks — across every to-do list
+  const scanTodos = (todos, where, view, sub) => (todos||[]).forEach(t=>{
+    if(t.deleted || t.done) return;
+    const at = t.createdAt || t.updatedAt;
+    if(t.name && t.name.trim().toLowerCase()===meName && t.by && notMe(t.by))
+      push('task_'+t.id,'✅', `${t.by} gave you a task in ${where}: “${t.task}”`, at, view, sub);
+    else if(textMentions(t.task, session.name) && notMe(t.by))
+      push('tm_'+t.id,'🏷', `You were tagged in a task in ${where}: “${t.task}”`, at, view, sub);
+  });
+  scanTodos(store.todos, 'the lodge To-Do list', 'todo', null);
+  Object.values(store.meetings).forEach(m=>{
+    const [,label,,off] = MONTHS.find(x=>x[0]===m.month);
+    scanTodos(m.todos, label+' '+(Number(m.season.slice(0,4))+off)+' meeting', 'meetings', m.id);
+  });
+  store.events.filter(e=>!e.deleted).forEach(e=>scanTodos(e.todos, '“'+e.name+'”', 'events', e.id));
+  // mentions in chats I can see
+  (store.lodgeChat||[]).forEach(c=>{
+    if(notMe(c.who) && textMentions(c.text, session.name))
+      push('lc_'+c.id,'💬', `${c.who} tagged you in Lodge Chat: “${c.text}”`, c.at, 'chat', null);
+  });
+  store.events.filter(e=>!e.deleted && (onCommittee(e)||isOwner())).forEach(e=>(e.chat||[]).forEach(c=>{
+    if(notMe(c.who) && textMentions(c.text, session.name))
+      push('ec_'+c.id,'💬', `${c.who} tagged you in the “${e.name}” chat: “${c.text}”`, c.at, 'events', e.id);
+  }));
+  // new notices, for everyone but the author
+  store.notices.filter(n=>!n.deleted && notMe(n.by)).forEach(n=>
+    push('nt_'+n.id,'📌', `New notice from ${n.by}: “${n.title}”`, n.at, 'notices', null));
+  // photo album linked / changed
+  if(store.photos.albumUrl)
+    push('ph_'+(store.photos.updatedAt||0),'📷','The lodge photo album was updated', store.photos.updatedAt, 'photos', null);
+  return out.sort((a,b)=>b.at-a.at).slice(0,100);
+}
+function unreadCount(){ const seen=getSeen(); return buildNotifications().filter(n=>!seen.has(n.id)).length; }
+let _lastUnread = 0;
+function maybeDeviceNotify(){
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const n = unreadCount();
+  if(n > _lastUnread && document.visibilityState!=='visible'){
+    navigator.serviceWorker.ready.then(r=>r.showNotification('Composite Lodge No. 4076',
+      {body:'You have '+n+' new notification'+(n>1?'s':'')+' in the lodge app.', icon:'./icon-192.png', badge:'./icon-192.png'})).catch(()=>{});
+  }
+  _lastUnread = n;
 }
 
 /* =====================================================================
@@ -300,6 +382,7 @@ function mergeStores(remote, local){
   out.photos = ((remote.photos||{}).updatedAt||0) >= ((local.photos||{}).updatedAt||0) ? (remote.photos||out.photos) : local.photos;
   out.lodgeChat = mergeChat(remote.lodgeChat, local.lodgeChat);
   out.perms = ((remote.perms||{}).updatedAt||0) >= ((local.perms||{}).updatedAt||0) ? (remote.perms||out.perms) : local.perms;
+  out.todos = mergeById(remote.todos, local.todos);
   return out;
 }
 
@@ -344,6 +427,7 @@ async function doSync(silent){
   }finally{
     syncing = false; updateSyncUi(false);
     App.rerender();
+    maybeDeviceNotify();
   }
 }
 function updateSyncUi(busy){
@@ -370,13 +454,13 @@ function todoListHtml(todos, ctx){
       <div class="todo">
         <input type="checkbox" aria-label="Mark done" onchange="App.todoTick('${ctx}','${t.id}')">
         <span class="who">${esc(t.name)}</span>
-        <span class="task">${esc(t.task)}</span>
+        <span class="task">${rich(t.task)}</span>
         <span class="due ${isLate(t.due)?'late':''}">${t.due?'Due '+fmtDate(t.due):''}</span>
         <button class="btn ghost sm" onclick="App.todoDel('${ctx}','${t.id}')" aria-label="Delete task">✕</button>
       </div>`).join('') : `<div class="muted small" style="padding:6px 2px;">No open tasks.</div>`}
     <div class="row" style="margin-top:10px;">
       <input list="memberNames" id="td_name_${ctx}" placeholder="Who" style="max-width:140px;">
-      <input id="td_task_${ctx}" placeholder="Task" style="flex:1; min-width:150px;">
+      <input id="td_task_${ctx}" placeholder="Task — type @ to tag a brother" style="flex:1; min-width:150px;" oninput="App.mentionInput(event)">
       <input type="date" id="td_due_${ctx}" style="max-width:150px;">
       <button class="btn sm" onclick="App.todoAdd('${ctx}')">Add</button>
       ${done.length?`<button class="btn ghost sm" onclick="App.toggleDone('${ctx}')">${App.showDone[ctx]?'Hide':'View'} completed (${done.length})</button>`:''}
@@ -391,6 +475,7 @@ function todoListHtml(todos, ctx){
       </div>`).join(''):''}`;
 }
 function todosFor(ctx){
+  if(ctx==='gen') return (store.todos = store.todos||[]);
   if(ctx.startsWith('mt_')) { const m = store.meetings[ctx.slice(3)]; return m ? (m.todos = m.todos||[]) : []; }
   if(ctx.startsWith('ev_')) { const e = store.events.find(x=>x.id===ctx.slice(3)); return e ? (e.todos = e.todos||[]) : []; }
   return [];
@@ -408,16 +493,20 @@ const App = {
 
   renderShell(){
     const nav = [ ['members','Members','👤'], ['meetings','Meetings','📖'], ['events','Events','🎉'],
-                  ['chat','Lodge Chat','💬'], ['notices','Lodge Notices','📌'], ['photos','Photos','📷'], ['settings','Settings','⚙'] ];
+                  ['todo','To-Do','✅'], ['chat','Lodge Chat','💬'], ['notices','Lodge Notices','📌'],
+                  ['photos','Photos','📷'], ['settings','Settings','⚙'] ];
+    const unread = unreadCount();
     $('#app').innerHTML = `
       <div id="topbar">
         <button id="burger" onclick="App.drawer=!App.drawer;App.renderShell()" aria-label="Menu">☰</button>
         <img class="logo" src="./logo.jpg" alt="">
         <span class="name">Composite Lodge No. 4076</span>
         <span class="grow"></span>
+        <button id="bell" class="${this.view==='notifications'?'on':''}" onclick="App.go('notifications')" aria-label="Notifications${unread?' — '+unread+' new':''}">🔔${unread?`<span class="nbadge">${unread>99?'99+':unread}</span>`:''}</button>
         <button id="syncbtn" class="syncbtn" onclick="doSync()">⟳ Sync</button>
         <span id="userchip">${esc(session.name||'')}</span>
       </div>
+      <div id="mentionbox" hidden></div>
       <nav id="sidebar" class="${this.drawer?'open':''}">
         ${nav.map(([v,label,ic])=>`<button class="${this.view===v?'on':''}" onclick="App.go('${v}')"><span aria-hidden="true">${ic}</span>${label}</button>`).join('')}
         <div class="spacer"></div>
@@ -644,10 +733,10 @@ const App = {
       <div class="card"><h4>Committee chat</h4>
         ${(e.chat||[]).length? e.chat.map(c=>`
           <div class="msg ${c.who===session.name?'me':'them'}">
-            <span class="m">${esc(c.who)} · ${new Date(c.at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>${esc(c.text)}
+            <span class="m">${esc(c.who)} · ${new Date(c.at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>${rich(c.text)}
           </div>`).join('') : '<div class="muted small">No messages yet.</div>'}
         <div class="row" style="margin-top:10px;">
-          <input id="chat_text" placeholder="Message the committee…" style="flex:1;" onkeydown="if(event.key==='Enter')App.chatSend('${id}')">
+          <input id="chat_text" placeholder="Message the committee — type @ to tag someone…" style="flex:1;" onkeydown="if(event.key==='Enter')App.chatSend('${id}')" oninput="App.mentionInput(event)">
           <button class="btn" onclick="App.chatSend('${id}')">Send</button>
         </div>
         <div class="muted small" style="margin-top:6px;">Only this event's committee can see this chat. Messages reach the others when you (and they) press Sync.</div>
@@ -677,6 +766,62 @@ const App = {
     save(); this.renderShell(); doSync(true);
   },
 
+  /* ================= TO-DO (whole lodge) ================= */
+  view_todo(){
+    return `
+      <h2>To-Do</h2>
+      <div class="card">
+        <div class="muted small" style="margin-bottom:8px;">The lodge's general to-do list — anyone can add a task. Tag a brother with @ and he'll get a notification. Meeting and event pages have their own lists too.</div>
+        ${todoListHtml(store.todos, 'gen')}
+      </div>`;
+  },
+
+  /* ================= NOTIFICATIONS ================= */
+  view_notifications(){
+    const all = buildNotifications();
+    const seen = getSeen();
+    this._notifs = all;
+    const newIds = new Set(all.filter(n=>!seen.has(n.id)).map(n=>n.id));
+    markSeen(all.map(n=>n.id));
+    return `
+      <h2>Notifications</h2>
+      ${all.length? `<div class="card" style="padding:6px 0;">
+        ${all.map((n,i)=>`
+          <div role="button" tabindex="0" onclick="App.notifGo(${i})" onkeydown="if(event.key==='Enter')App.notifGo(${i})"
+               style="display:flex;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--chip);cursor:pointer;${newIds.has(n.id)?'background:#FBF7E8;':''}">
+            <span style="font-size:18px;" aria-hidden="true">${n.icon}</span>
+            <span style="flex:1;">${rich(n.text)}${newIds.has(n.id)?' <span class="chip gold" style="font-size:10px;">new</span>':''}</span>
+            <span class="muted small" style="white-space:nowrap;">${n.at? new Date(n.at).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):''}</span>
+          </div>`).join('')}
+      </div>` : `<div class="card empty"><img src="./logo.jpg" alt=""><br>Nothing yet — when a brother tags you, gives you a task, or posts a notice, it appears here.</div>`}
+      <p class="muted small">Notifications appear when the app syncs — automatically on opening and every few minutes while open.</p>`;
+  },
+  notifGo(i){ const n=this._notifs && this._notifs[i]; if(n) this.go(n.view, n.sub); },
+
+  /* ---------- @mention suggestions (chat + task inputs) ---------- */
+  mentionInput(ev){
+    const el = ev.target, box = $('#mentionbox');
+    const at = el.value.lastIndexOf('@');
+    if(at === -1){ box.hidden = true; return; }
+    const q = el.value.slice(at+1).toLowerCase();
+    if(q.length > 24){ box.hidden = true; return; }
+    const hits = sortedMembers().filter(m => m.name.toLowerCase().startsWith(q)).slice(0,6);
+    if(!hits.length){ box.hidden = true; return; }
+    this._mentionEl = el;
+    box.innerHTML = hits.map(m=>`<button type="button" onmousedown="event.preventDefault();App.mentionPick('${esc(m.name)}')">@${esc(m.name)}</button>`).join('');
+    const r = el.getBoundingClientRect();
+    box.style.left = Math.min(r.left, window.innerWidth-230)+'px';
+    box.style.top = (r.bottom+4)+'px';
+    box.hidden = false;
+  },
+  mentionPick(name){
+    const el = this._mentionEl; if(!el) return;
+    const at = el.value.lastIndexOf('@');
+    el.value = el.value.slice(0, at) + '@' + name + ' ';
+    $('#mentionbox').hidden = true;
+    el.focus();
+  },
+
   /* ================= LODGE CHAT ================= */
   view_chat(){
     const msgs = (store.lodgeChat||[]).slice(-200);
@@ -686,10 +831,10 @@ const App = {
         <div class="muted small" style="margin-bottom:8px;">Open to all members of the lodge. Messages reach the brethren when they next press ⟳ Sync.</div>
         ${msgs.length? msgs.map(c=>`
           <div class="msg ${c.who===session.name?'me':'them'}">
-            <span class="m">${esc(c.who)} · ${new Date(c.at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>${esc(c.text)}
+            <span class="m">${esc(c.who)} · ${new Date(c.at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>${rich(c.text)}
           </div>`).join('') : '<div class="muted small">No messages yet — start the conversation.</div>'}
         <div class="row" style="margin-top:10px;">
-          <input id="lchat_text" placeholder="Message the lodge…" style="flex:1;" onkeydown="if(event.key==='Enter')App.lodgeChatSend()">
+          <input id="lchat_text" placeholder="Message the lodge — type @ to tag someone…" style="flex:1;" onkeydown="if(event.key==='Enter')App.lodgeChatSend()" oninput="App.mentionInput(event)">
           <button class="btn" onclick="App.lodgeChatSend()">Send</button>
         </div>
       </div>`;
@@ -797,7 +942,14 @@ const App = {
         <button class="btn ghost sm" onclick="App.switchUser()">Switch user</button>
       </div>
       <div class="card"><h4>Sync</h4>
-        <p class="small">${lastSyncText()}. ${session.token?'Sync is active — press ⟳ Sync whenever you open the app.':'<b>Sync is not activated yet</b> — data is saved on this device only for now.'}</p>
+        <p class="small">${lastSyncText()}. ${session.token?'Sync is active — it runs automatically on opening and every few minutes.':'<b>Sync is not activated yet</b> — data is saved on this device only for now.'}</p>
+      </div>
+      <div class="card"><h4>Device notifications</h4>
+        <p class="small">Show a pop-up on this device when new notifications arrive while the app is open in the background. (Without this, the 🔔 bell still collects everything.)</p>
+        ${!('Notification' in window)? '<p class="small muted">Not supported on this device.</p>'
+          : Notification.permission==='granted'? '<p class="small" style="color:var(--ok);">✓ Enabled on this device.</p>'
+          : Notification.permission==='denied'? '<p class="small muted">Blocked in your browser settings — allow notifications for this site to enable.</p>'
+          : `<button class="btn sm" onclick="Notification.requestPermission().then(()=>App.renderShell())">Enable</button>`}
       </div>
       ${isOwner()? `
       <div class="card"><h4>Permissions — who can manage committees</h4>
@@ -869,7 +1021,7 @@ const App = {
     const byId=id=>document.getElementById(id);
     const name=byId('td_name_'+ctx).value.trim(), task=byId('td_task_'+ctx).value.trim(), due=byId('td_due_'+ctx).value;
     if(!task){ toast('Type the task first.', true); return; }
-    todosFor(ctx).push({id:uid(), name:name||session.name, task, due, done:false, updatedAt:now()});
+    todosFor(ctx).push({id:uid(), name:name||session.name, task, due, done:false, by:session.name, createdAt:now(), updatedAt:now()});
     this.touchCtx(ctx); save(); this.renderShell();
   },
   todoTick(ctx,id){ const t=todosFor(ctx).find(x=>x.id===id); t.done=true; t.doneAt=now(); t.updatedAt=now(); save(); this.renderShell(); },
@@ -976,6 +1128,10 @@ function autoSync(){
   doSync(true);
 }
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') autoSync(); });
+document.addEventListener('click', e=>{
+  const box=$('#mentionbox');
+  if(box && !box.hidden && !e.target.closest('#mentionbox')) box.hidden=true;
+});
 window.addEventListener('online', autoSync);
 setInterval(()=>{ if(document.visibilityState==='visible') autoSync(); }, 3*60*1000);  // every 3 min while open
 
