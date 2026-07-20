@@ -596,8 +596,10 @@ function notifyIds(s){
   // a Festive Board booking is worth waking the Secretary for; changing an
   // existing one is not, so the id deliberately carries no timestamp
   Object.values(s.meetings||{}).forEach(m=>{
-    Object.keys(m.attend||{}).forEach(k=>{ if(m.attend[k].dining) ids.add('d'+m.id+'|'+k); });
-    (m.visitors||[]).forEach(v=>{ if(v.dining && !v.deleted) ids.add('dv'+v.id); });
+    // only once the meal is chosen — ticking "dining" alone is not yet a booking,
+    // and flagging it then would spend the notification before there was news
+    Object.keys(m.attend||{}).forEach(k=>{ const a=m.attend[k]; if(a.dining && a.meal) ids.add('d'+m.id+'|'+k); });
+    (m.visitors||[]).forEach(v=>{ if(v.dining && v.meal && !v.deleted) ids.add('dv'+v.id); });
     (m.files||[]).forEach(f=>{ if(!f.deleted) ids.add('f'+f.id); });   // the summons is worth knowing about
   });
   ids.add('p'+((s.photos||{}).updatedAt||0));

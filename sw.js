@@ -2,7 +2,7 @@
    Network-first for the app itself (so updates arrive), cache fallback offline.
    All network fetches bypass the browser HTTP cache ('no-cache' / 'reload') so a
    stale copy can never be re-cached — otherwise updates could lag indefinitely. */
-const CACHE = 'lodge4076-v13';
+const CACHE = 'lodge4076-v14';
 const ASSETS = ['./', './index.html', './logo.jpg', './icon-192.png', './icon-512.png', './manifest.json', './sync-config.json'];
 
 self.addEventListener('install', e => {
