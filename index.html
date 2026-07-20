@@ -1138,10 +1138,11 @@ const App = {
     Object.keys(m.attend||{}).forEach(id=>{
       const a = m.attend[id], mem = memberById(id);
       if(!a.dining || !mem || mem.deleted) return;
-      rows.push({name:mem.name, guest:'', meal:a.meal||'', dessert:a.dessert||'', pay:a.pay||'', paidOn:a.paidOn||''});
+      rows.push({scope:'m', key:id, name:mem.name, guest:'',
+                 meal:a.meal||'', dessert:a.dessert||'', pay:a.pay||'', paidOn:a.paidOn||''});
     });
     (m.visitors||[]).filter(v=>!v.deleted && v.dining).forEach(v=>{
-      rows.push({name:v.name, guest:[v.lodge, v.host?'guest of '+v.host:''].filter(Boolean).join(', '),
+      rows.push({scope:'v', key:v.id, name:v.name, guest:[v.lodge, v.host?'guest of '+v.host:''].filter(Boolean).join(', '),
                  meal:v.meal||'', dessert:v.dessert||'', pay:v.pay||'', paidOn:v.paidOn||''});
     });
     return rows.sort((a,b)=>a.name.localeCompare(b.name));
@@ -1163,21 +1164,26 @@ const App = {
         <div style="margin-bottom:12px;"><span class="small muted">Desserts:</span> ${chips(tally('dessert'))}</div>
         <div class="tablewrap"><table>
           <tr><th>Name</th><th>Guest of</th><th>Meal</th><th>Dessert</th><th>Payment</th><th>Transfer sent</th></tr>
-          ${rows.map(r=>`<tr>
-            <td><b>${esc(r.name)}</b></td>
-            <td>${esc(r.guest)||'<span class="muted">—</span>'}</td>
-            <td>${r.meal?esc(r.meal):'<span class="chip">not yet chosen</span>'}</td>
-            <td>${esc(r.dessert)||'<span class="muted">—</span>'}</td>
-            <td>${esc(r.pay)||'<span class="muted">—</span>'}</td>
-            <td>${r.paidOn?fmtDate(r.paidOn):'<span class="muted">—</span>'}</td>
-          </tr>`).join('')}
+          ${rows.map(r=>{
+            const pick = (field, opts) => `<select style="max-width:130px;"
+                onchange="App.setDiningField('${m.id}','${r.scope}','${r.key}','${field}',this.value)">
+                <option value="">—</option>${opts.map(o=>`<option ${r[field]===o?'selected':''}>${o}</option>`).join('')}</select>`;
+            return `<tr>
+              <td><b>${esc(r.name)}</b></td>
+              <td>${esc(r.guest)||'<span class="muted">—</span>'}</td>
+              <td>${pick('meal', MEALS)}</td>
+              <td>${pick('dessert', DESSERTS)}</td>
+              <td>${pick('pay', PAYMENTS)}</td>
+              <td><input type="date" value="${esc(r.paidOn)}" style="max-width:150px;"
+                    onchange="App.setDiningField('${m.id}','${r.scope}','${r.key}','paidOn',this.value)"></td>
+            </tr>`;}).join('')}
         </table></div>
         <div class="row" style="margin-top:12px;">
           <button class="btn ghost sm" onclick="App.copyDining('${m.id}')">📋 Copy the list</button>
           <button class="btn ghost sm" onclick="App.exportDining('${m.id}')">⬇ Download as a spreadsheet</button>
           <button class="btn ghost sm" onclick="App.emailDining('${m.id}')">✉ Send it on</button>
         </div>
-        <div class="muted small" style="margin-top:8px;">Everything the caterer needs. “Send it on” opens your email with the list already written out.</div>
+        <div class="muted small" style="margin-top:8px;">Everything the caterer needs. You can fill these in yourself for a brother who replies by telephone or on the old form. “Send it on” opens your email with the list already written out.</div>
         ` : '<div class="muted small">Nobody has booked for the Festive Board yet. As brethren tick “staying for the Festive Board” and choose their meal, they appear here.</div>'}
       </div>`;
   },
@@ -1195,6 +1201,20 @@ const App = {
       ...rows.map(r=>[r.name, r.guest, r.meal||'not yet chosen', r.dessert, r.pay,
                       r.paidOn?'transfer sent '+fmtDate(r.paidOn):''].filter(Boolean).join(' · ')),
     ].filter(x=>x!==undefined).join('\n');
+  },
+  /* the Secretary recording a choice for a brother who replied by telephone or
+     on the old Google form */
+  setDiningField(mid, scope, key, field, value){
+    if(!canManage()){ toast('Only the Secretary and those he has permitted can change this.', true); return; }
+    const m = store.meetings[mid]; if(!m) return;
+    if(scope==='m'){
+      m.attend = m.attend||{};
+      m.attend[key] = {...(m.attend[key]||{}), status:'yes', dining:true, [field]:value, at:now(), by:session.name};
+    }else{
+      const v = (m.visitors||[]).find(x=>x.id===key); if(!v) return;
+      v[field] = value; v.dining = true; v.updatedAt = now();
+    }
+    save(); this.renderShell(); doSync(true); toast('Saved.');
   },
   async copyDining(mid){
     const t = this.diningText(store.meetings[mid]);
