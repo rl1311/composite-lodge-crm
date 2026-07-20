@@ -257,6 +257,30 @@ async function sha256(text){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
 }
+/* base64 for upload — via FileReader, which handles megabytes without the
+   stack trouble of building the string a character at a time */
+function fileToBase64(file){
+  return new Promise((res, rej)=>{
+    const r = new FileReader();
+    r.onload  = () => res(String(r.result).split(',')[1]);
+    r.onerror = () => rej(new Error('the file could not be read'));
+    r.readAsDataURL(file);
+  });
+}
+function fmtSize(n){
+  if(!n && n!==0) return '';
+  if(n < 1024) return n+' bytes';
+  if(n < 1024*1024) return Math.round(n/1024)+' KB';
+  return (n/1024/1024).toFixed(1).replace(/\.0$/,'')+' MB';
+}
+function fileIcon(name){
+  const e = (name||'').split('.').pop().toLowerCase();
+  if(e==='pdf') return '📕';
+  if(['doc','docx','rtf','odt'].includes(e)) return '📘';
+  if(['xls','xlsx','csv'].includes(e)) return '📗';
+  if(['png','jpg','jpeg','gif','heic','webp'].includes(e)) return '🖼';
+  return '📄';
+}
 function b64encode(str){ const bytes=new TextEncoder().encode(str); let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin); }
 function b64decode(b64){ const bin=atob(b64.replace(/\n/g,'')); const bytes=Uint8Array.from(bin, c=>c.charCodeAt(0)); return new TextDecoder().decode(bytes); }
 
@@ -265,7 +289,7 @@ function freshStore(){
   const meetings = {};
   SEASONS.forEach(se => MONTHS.forEach(([key]) => {
     meetings[se+'|'+key] = { id:se+'|'+key, season:se, month:key, type:'', date:'', time:'', place:'',
-                             notes:'', festive:'', fieldsAt:0, todos:[], attend:{}, visitors:[],
+                             notes:'', festive:'', fieldsAt:0, todos:[], attend:{}, visitors:[], files:[],
                              dnVenue:'', dnFee:'', dnPay:'', dnBy:'' };
   }));
   return { members:[], meetings, events:[], notices:[], photos:{albumUrl:'', updatedAt:0},
@@ -419,6 +443,11 @@ function buildNotifications(){
     if(notMe(c.who) && textMentions(c.text, session.name))
       push('ec_'+c.id,'💬', `${c.who} tagged you in the “${e.name}” chat: “${c.text}”`, c.at, 'events', e.id);
   }));
+  // meeting documents — everyone but whoever added them
+  Object.values(store.meetings).forEach(m=>(m.files||[]).forEach(f=>{
+    if(f.deleted || !notMe(f.by)) return;
+    push('fl_'+f.id,'📎', `${f.by} added “${f.name}” to ${meetingTitle(m)}`, f.at, 'meetings', m.id);
+  }));
   // Festive Board bookings — the Secretary and whoever he has permitted
   if(canManage()) Object.values(store.meetings).forEach(m=>{
     const where = meetingTitle(m);
@@ -529,7 +558,8 @@ function mergeStores(remote, local){
       dnVenue:scal.dnVenue||'', dnFee:scal.dnFee||'', dnPay:scal.dnPay||'', dnBy:scal.dnBy||'',
       todos:mergeById(r&&r.todos, l&&l.todos),
       attend:mergeAttend(r&&r.attend, l&&l.attend),
-      visitors:mergeById(r&&r.visitors, l&&l.visitors)};
+      visitors:mergeById(r&&r.visitors, l&&l.visitors),
+      files:mergeById(r&&r.files, l&&l.files)};
   });
   // events: scalars by fieldsAt; todos & chat merged
   const evMap = new Map();
@@ -568,6 +598,7 @@ function notifyIds(s){
   Object.values(s.meetings||{}).forEach(m=>{
     Object.keys(m.attend||{}).forEach(k=>{ if(m.attend[k].dining) ids.add('d'+m.id+'|'+k); });
     (m.visitors||[]).forEach(v=>{ if(v.dining && !v.deleted) ids.add('dv'+v.id); });
+    (m.files||[]).forEach(f=>{ if(!f.deleted) ids.add('f'+f.id); });   // the summons is worth knowing about
   });
   ids.add('p'+((s.photos||{}).updatedAt||0));
   return ids;
@@ -853,6 +884,7 @@ const App = {
           <input id="mt_place" value="${esc(m.place)}" placeholder="e.g. Freemasons' Hall, Great Queen Street" onchange="App.meetingField('${id}','place',this.value)"></div>
         <button class="btn ghost sm" onclick="App.meetingToCalendar('${id}')">📅 Add to my calendar</button>
       </div>
+      ${this.filesCard(m)}
       ${this.attendanceCard(m)}
       ${this.visitorsCard(m)}
       ${canManage()? this.diningListCard(m) : ''}
@@ -1018,6 +1050,84 @@ const App = {
     const prev = m.attend[memberId]||{status:'yes'};
     m.attend[memberId] = {...prev, status:'yes', dining:!!dining, at:now(), by:session.name};
     save(); this.renderShell(); doSync(true);
+  },
+
+  /* ---------- meeting documents: summons, table plan and the like ----------
+     Everyone can read them; only the Secretary and those he has permitted may
+     add or remove. Files themselves live in the private data repository, the
+     same place notice attachments go. */
+  filesCard(m){
+    const files = (m.files||[]).filter(f=>!f.deleted).sort((a,b)=>(b.at||0)-(a.at||0));
+    const manage = canManage();
+    return `
+      <div class="card"><h4>Documents</h4>
+        ${files.length? files.map(f=>`
+          <div class="row" style="padding:9px 2px;border-bottom:1px solid var(--chip);flex-wrap:nowrap;">
+            <span style="font-size:20px;flex:none;" aria-hidden="true">${fileIcon(f.name)}</span>
+            <span style="flex:1;min-width:0;">
+              <b style="word-break:break-word;">${esc(f.name)}</b>
+              <span class="muted small" style="display:block;">${fmtSize(f.size)}${f.by?' · added by '+esc(f.by):''}${f.at?' · '+fmtDate(new Date(f.at).toISOString().slice(0,10)):''}</span>
+            </span>
+            <button class="btn ghost sm" style="flex:none;" onclick="App.fileOpen('${m.id}','${f.id}')">Open</button>
+            ${manage?`<button class="btn danger sm" style="flex:none;" onclick="App.fileDel('${m.id}','${f.id}')" aria-label="Remove ${esc(f.name)}">✕</button>`:''}
+          </div>`).join('')
+        : `<div class="muted small">No documents yet${manage?' — add the summons, the table plan or anything else the brethren need.':'. The Secretary puts the summons and table plan here.'}</div>`}
+        ${manage? `
+        <div class="row" style="margin-top:12px;">
+          <input type="file" id="mf_files_${m.id}" multiple style="max-width:260px;">
+          <button class="btn sm" id="mf_btn_${m.id}" onclick="App.filesAdd('${m.id}')">Add document</button>
+        </div>
+        <div class="muted small" style="margin-top:8px;">PDF, Word, images — up to 5 MB each. You can choose several at once. Everyone in the lodge can open them; only you and those you have permitted can add or remove.</div>
+        ` : ''}
+      </div>`;
+  },
+  async filesAdd(mid){
+    const m = store.meetings[mid]; if(!m) return;
+    if(!canManage()){ toast('Only the Secretary and those he has permitted can add documents.', true); return; }
+    const input = document.getElementById('mf_files_'+mid);
+    const chosen = [...(input.files||[])];
+    if(!chosen.length){ toast('Choose a file first.', true); return; }
+    if(!session.token){ toast('Documents need sync to be activated — ask the Secretary.', true); return; }
+    const btn = document.getElementById('mf_btn_'+mid);
+    if(btn){ btn.disabled = true; btn.textContent = 'Uploading…'; }
+    let added = 0, failed = [];
+    for(const f of chosen){
+      if(f.size > 5*1024*1024){ failed.push(f.name+' (over 5 MB)'); continue; }
+      try{
+        const id = uid();
+        const path = 'attachments/' + mid.replace(/[^\w-]/g,'-') + '-' + id + '-' + f.name.replace(/[^\w.\-]+/g,'_');
+        await ghPut(path, await fileToBase64(f), 'Meeting document: ' + f.name);
+        (m.files = m.files||[]).push({id, name:f.name, path, size:f.size, by:session.name, at:now(), updatedAt:now()});
+        added++;
+      }catch(e){ failed.push(f.name); }
+    }
+    save(); this.renderShell();
+    if(added) doSync(true);
+    if(failed.length) toast((added?added+' added. ':'') + 'Could not upload: ' + failed.join(', '), true);
+    else toast(added===1 ? 'Document added.' : added + ' documents added.');
+  },
+  async fileOpen(mid, fid){
+    const f = ((store.meetings[mid]||{}).files||[]).find(x=>x.id===fid);
+    if(!f) return;
+    if(!session.token){ toast('Sync needs to be activated to open documents.', true); return; }
+    try{
+      const got = await ghGet(f.path);
+      const bin = atob(got.content.replace(/\n/g,''));
+      const bytes = Uint8Array.from(bin, c=>c.charCodeAt(0));
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([bytes]));
+      a.download = f.name; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    }catch(e){ toast('Could not open that document: '+e.message, true); }
+  },
+  async fileDel(mid, fid){
+    if(!canManage()){ toast('Only the Secretary and those he has permitted can remove documents.', true); return; }
+    const f = ((store.meetings[mid]||{}).files||[]).find(x=>x.id===fid);
+    if(!f || !confirm('Remove “'+f.name+'” from this meeting?')) return;
+    f.deleted = true; f.updatedAt = now();
+    save(); this.renderShell(); doSync(true); toast('Document removed.');
+    try{ const got = await ghGet(f.path); if(got) await ghDelete(f.path, got.sha, 'Removed meeting document: '+f.name); }
+    catch(e){ /* the record is gone either way; a stray blob is harmless */ }
   },
 
   /* ---------- the Secretary's dining list ---------- */
@@ -1454,6 +1564,9 @@ const App = {
       (m.visitors||[]).filter(v=>!v.deleted).forEach(v=>{
         if(has(v.name, v.lodge, v.host))
           hit('🤝', v.name+(v.lodge?' — '+v.lodge:''), 'Visitor at '+label, 'meetings', m.id);
+      });
+      (m.files||[]).filter(f=>!f.deleted).forEach(f=>{
+        if(has(f.name, f.by)) hit(fileIcon(f.name), f.name, 'Document on '+label, 'meetings', m.id);
       });
       (m.todos||[]).filter(t=>!t.deleted).forEach(t=>{
         if(has(t.task, t.name)) hit('✅', t.task, (t.name?t.name+' · ':'')+label+(t.done?' · done':''), 'meetings', m.id);
