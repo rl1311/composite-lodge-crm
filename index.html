@@ -292,9 +292,34 @@ function memberById(id){ return store.members.find(m=>m.id===id); }
    Owner = the member whose email is OWNER_EMAIL (matched to the signed-in name).
    Managers = members the owner has granted committee/chat rights in Settings.
    Until an owner record exists in Members (initial setup), everyone can manage. */
+/* Which member record is the signed-in person? The record chosen at sign-in is
+   remembered outright; matching on the name alone is only a fallback, because a
+   brother who signs in as "Charlie" is still "Charles Whitfield" in the list. */
 function currentMember(){
-  if(!session || !session.name) return null;
+  if(!session) return null;
+  if(session.memberId){
+    const m = store.members.find(x=>!x.deleted && x.id===session.memberId);
+    if(m) return m;
+  }
+  if(!session.name) return null;
   return store.members.find(m=>!m.deleted && m.name.trim().toLowerCase()===session.name.trim().toLowerCase()) || null;
+}
+/* Shown wherever the app needs to know who you are but hasn't been told. */
+function identifyHtml(lead){
+  const ms = sortedMembers();
+  if(!ms.length) return `<p class="small muted">${lead} There are no members in the list yet — ask the Secretary to add you.</p>`;
+  return `
+    <div style="background:#FBF7E8;border:1px solid #E8DCAF;border-radius:10px;padding:14px 16px;">
+      <b style="font-family:var(--serif);font-size:15.5px;color:var(--navy-deep);">Which of these is you?</b>
+      <p class="small" style="margin:6px 0 10px;">${lead}</p>
+      <div class="row">
+        <select id="me_pick" style="max-width:260px;">
+          <option value="">Choose your name…</option>
+          ${ms.map(m=>`<option value="${m.id}">${esc(m.name)}${m.office?' — '+esc(m.office):''}</option>`).join('')}
+        </select>
+        <button class="btn" onclick="App.linkMe()">That's me</button>
+      </div>
+    </div>`;
 }
 function ownerMember(){ return store.members.find(m=>!m.deleted && (m.email||'').trim().toLowerCase()===OWNER_EMAIL) || null; }
 function isOwnerRecord(m){ return (m.email||'').trim().toLowerCase()===OWNER_EMAIL; }
@@ -824,7 +849,7 @@ const App = {
           </label>` : ''}
           ${mine? `<div class="small muted" style="margin-top:10px;">Your answer is saved${mine.status==='yes'&&!mine.dining?' — do tick the Festive Board if you’re dining':''}. You can change it any time.</div>`
                 : `<div class="small muted" style="margin-top:10px;">Tap an answer — the Secretary sees the numbers straight away.</div>`}
-        </div>` : `<p class="small muted">Your name isn't in the Members list yet, so you can't mark your own attendance here. Ask the Secretary to add you.</p>`}
+        </div>` : identifyHtml('The app hasn’t yet been told which member you are, so it can’t record your attendance. Pick your name once and it will remember.')}
 
         <div class="stats">
           <div class="stat"><b>${t.yes}</b><span>attending</span></div>
@@ -1079,7 +1104,7 @@ const App = {
     const money = v => { const n=parseFloat(String(v).replace(/[^0-9.]/g,'')); return isNaN(n)?0:n; };
 
     if(!manage){
-      if(!me) return `<h2>Subscriptions</h2><div class="card"><p class="small muted">Your name isn't in the Members list yet, so there is nothing to show. Ask the Secretary to add you.</p></div>`;
+      if(!me) return `<h2>Subscriptions</h2><div class="card">${identifyHtml('The app hasn’t yet been told which member you are, so it can’t show your subscription.')}</div>`;
       const r = (store.subs||[]).find(x=>x.id===me.id+'|'+season);
       return `
         <h2>Subscriptions</h2>
@@ -1434,7 +1459,15 @@ const App = {
       <h2>Settings</h2>
       <div class="card"><h4>You</h4>
         <p class="small">Signed in as <b>${esc(session.name)}</b> — tasks and chat messages you write are attributed to this name.</p>
-        <button class="btn ghost sm" onclick="App.switchUser()">Switch user</button>
+        ${(()=>{
+          const me = currentMember();
+          if(me && !session.picking) return `<p class="small" style="color:var(--ok);">✓ Linked to your record in the Members list${me.office?' ('+esc(me.office)+')':''}, so you can mark your attendance and see your subscription.</p>`;
+          return identifyHtml('You are not yet linked to a record in the Members list, so the app can’t record your attendance or show your subscription.');
+        })()}
+        <div class="row" style="margin-top:10px;">
+          <button class="btn ghost sm" onclick="App.switchUser()">Switch user</button>
+          ${currentMember()?`<button class="btn ghost sm" onclick="App.unlinkMe()">Not you?</button>`:''}
+        </div>
       </div>
       <div class="card"><h4>Sync</h4>
         <p class="small">${lastSyncText()}. ${session.token?'Sync is active — it runs automatically on opening and every few minutes.':'<b>Sync is not activated yet</b> — data is saved on this device only for now.'}</p>
@@ -1522,6 +1555,22 @@ const App = {
     save(); this.renderShell(); toast('Permission removed.'); doSync(true);
   },
   saveAlbum(){ store.photos={albumUrl:$('#st_album').value.trim(), updatedAt:now()}; save(); toast('Album link saved.'); doSync(true); },
+  linkMe(memberId){
+    const id = memberId || ($('#me_pick') && $('#me_pick').value);
+    const m = id && memberById(id);
+    if(!m){ toast('Choose your name from the list first.', true); return; }
+    session.memberId = m.id;
+    session.name = m.name;          // attribute future tasks and messages to the name in the list
+    session.picking = false;
+    setSession(session);
+    this.renderShell();
+    toast('Thank you — the app now knows you are ' + m.name + '.');
+    doSync(true);
+  },
+  unlinkMe(){
+    session.memberId = null; session.picking = true; setSession(session);
+    this.renderShell(); toast('Pick the right name from the list.');
+  },
   switchUser(){ session=null; localStorage.removeItem(KEY_SESS); location.reload(); },
   exportData(){
     const blob=new Blob([JSON.stringify(store,null,2)],{type:'application/json'});
@@ -1570,7 +1619,7 @@ function renderLogin(step, err){
         <button class="btn" style="width:100%;" onclick="tryPass()">Enter</button>
       ` : `
         <div class="namelist">
-          ${names.length? names.map(m=>`<button onclick="pickName('${jsq(m.name)}')">${esc(m.name)}${m.office?' — '+esc(m.office):''}</button>`).join('')
+          ${names.length? names.map(m=>`<button onclick="pickName('${jsq(m.name)}','${m.id}')">${esc(m.name)}${m.office?' — '+esc(m.office):''}</button>`).join('')
             : '<div class="small muted" style="padding:12px;">No members in the list yet — type your name below.</div>'}
         </div>
         <input id="lg_name" placeholder="Or type your name" style="margin-top:10px;" onkeydown="if(event.key==='Enter')pickName()">
@@ -1588,10 +1637,15 @@ async function tryPass(){
   if(new URLSearchParams(location.search).has('form')) renderMemberForm();
   else renderLogin('who');
 }
-function pickName(n){
+function pickName(n, memberId){
   const name = n || $('#lg_name').value.trim();
   if(!name){ return; }
-  session = {name, token:pendingToken, until: now()+30*864e5};
+  // a name typed by hand still matches a record if it is written exactly the same
+  if(!memberId){
+    const m = store.members.find(x=>!x.deleted && x.name.trim().toLowerCase()===name.trim().toLowerCase());
+    if(m) memberId = m.id;
+  }
+  session = {name, memberId:memberId||null, token:pendingToken, until: now()+30*864e5};
   setSession(session);
   App.renderShell();
   doSync(true);
