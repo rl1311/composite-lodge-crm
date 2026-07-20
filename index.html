@@ -301,32 +301,56 @@ function currentMember(){
     const m = store.members.find(x=>!x.deleted && x.id===session.memberId);
     if(m) return m;
   }
+  // Falling back to the name only ever reaches records the lodge holds no email
+  // for. A record with an email address can be claimed only by proving it.
   if(!session.name) return null;
-  return store.members.find(m=>!m.deleted && m.name.trim().toLowerCase()===session.name.trim().toLowerCase()) || null;
+  return store.members.find(m=>!m.deleted && !(m.email||'').trim() &&
+    m.name.trim().toLowerCase()===session.name.trim().toLowerCase()) || null;
 }
-/* Shown wherever the app needs to know who you are but hasn't been told. */
+/* A session is "verified" only when the person proved the email address held
+   against his record. Office and permissions hang off this, so that knowing the
+   shared passcode is never enough on its own to sign in as the Secretary. */
+function isVerified(){ return !!(session && session.verified && currentMember()); }
+/* Shown wherever the app needs to know who you are but hasn't been told.
+   Identity comes from the email address the brother himself registered — never
+   from a list of names anyone could pick out of. */
 function identifyHtml(lead){
   const ms = sortedMembers();
   if(!ms.length) return `<p class="small muted">${lead} There are no members in the list yet — ask the Secretary to add you.</p>`;
+  const noEmail = ms.filter(m=>!(m.email||'').trim());
   return `
     <div style="background:#FBF7E8;border:1px solid #E8DCAF;border-radius:10px;padding:14px 16px;">
-      <b style="font-family:var(--serif);font-size:15.5px;color:var(--navy-deep);">Which of these is you?</b>
-      <p class="small" style="margin:6px 0 10px;">${lead}</p>
+      <b style="font-family:var(--serif);font-size:15.5px;color:var(--navy-deep);">Confirm who you are</b>
+      <p class="small" style="margin:6px 0 10px;">${lead} Enter the email address you gave the lodge and the app will find your record.</p>
       <div class="row">
-        <select id="me_pick" style="max-width:260px;">
-          <option value="">Choose your name…</option>
-          ${ms.map(m=>`<option value="${m.id}">${esc(m.name)}${m.office?' — '+esc(m.office):''}</option>`).join('')}
-        </select>
-        <button class="btn" onclick="App.linkMe()">That's me</button>
+        <input id="me_email" type="email" autocomplete="email" placeholder="your@email.com" style="max-width:250px;"
+          onkeydown="if(event.key==='Enter')App.verifyEmail()">
+        <button class="btn" onclick="App.verifyEmail()">Confirm</button>
       </div>
+      ${noEmail.length? `
+      <details style="margin-top:12px;">
+        <summary class="small" style="cursor:pointer;color:var(--navy);">The lodge doesn’t have my email address</summary>
+        <div class="row" style="margin-top:8px;">
+          <select id="me_pick" style="max-width:230px;">
+            <option value="">Choose your name…</option>
+            ${noEmail.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}
+          </select>
+          <button class="btn ghost" onclick="App.linkMe()">That’s me</button>
+        </div>
+        <p class="small muted" style="margin-top:8px;">Only brethren whose email address the lodge does not hold appear here, and choosing a name this way never carries any office or permission. Ask the Secretary to add your address so the app can recognise you properly.</p>
+      </details>` : ''}
     </div>`;
 }
 function ownerMember(){ return store.members.find(m=>!m.deleted && (m.email||'').trim().toLowerCase()===OWNER_EMAIL) || null; }
 function isOwnerRecord(m){ return (m.email||'').trim().toLowerCase()===OWNER_EMAIL; }
-function isOwner(){ const me=currentMember(); return !!(me && (me.email||'').trim().toLowerCase()===OWNER_EMAIL); }
+function isOwner(){
+  const me=currentMember();
+  return !!(isVerified() && me && (me.email||'').trim().toLowerCase()===OWNER_EMAIL);
+}
 function canManage(){
   if(isOwner()) return true;
   if(!ownerMember()) return true;               // setup phase — no owner record yet
+  if(!isVerified()) return false;               // an unproven sign-in never manages
   const me=currentMember();
   return !!(me && (store.perms.managers||[]).includes(me.id));
 }
@@ -1461,8 +1485,12 @@ const App = {
         <p class="small">Signed in as <b>${esc(session.name)}</b> — tasks and chat messages you write are attributed to this name.</p>
         ${(()=>{
           const me = currentMember();
-          if(me && !session.picking) return `<p class="small" style="color:var(--ok);">✓ Linked to your record in the Members list${me.office?' ('+esc(me.office)+')':''}, so you can mark your attendance and see your subscription.</p>`;
-          return identifyHtml('You are not yet linked to a record in the Members list, so the app can’t record your attendance or show your subscription.');
+          if(me && session.verified && !session.picking)
+            return `<p class="small" style="color:var(--ok);">✓ Confirmed by your email address${me.office?', '+esc(me.office):''}. ${isOwner()?'You hold full permissions.':'You can mark your attendance and see your own subscription.'}</p>`;
+          if(me && !session.picking)
+            return `<p class="small">Recognised as <b>${esc(me.name)}</b>, but not confirmed by email — so no office or permissions come with it.</p>`
+              + identifyHtml('Confirm your email address to take up your office and permissions.');
+          return identifyHtml('The app doesn’t yet know which member you are, so it can’t record your attendance or show your subscription.');
         })()}
         <div class="row" style="margin-top:10px;">
           <button class="btn ghost sm" onclick="App.switchUser()">Switch user</button>
@@ -1555,13 +1583,28 @@ const App = {
     save(); this.renderShell(); toast('Permission removed.'); doSync(true);
   },
   saveAlbum(){ store.photos={albumUrl:$('#st_album').value.trim(), updatedAt:now()}; save(); toast('Album link saved.'); doSync(true); },
+  verifyEmail(){
+    const v = (($('#me_email')||{}).value||'').trim().toLowerCase();
+    if(!v){ toast('Type your email address first.', true); return; }
+    const m = store.members.find(x=>!x.deleted && (x.email||'').trim().toLowerCase()===v);
+    if(!m){ toast('That address isn’t on the members list. Check it, or ask the Secretary to add it to your record.', true); return; }
+    session.memberId = m.id;
+    session.name = m.name;          // attribute future tasks and messages to the name in the list
+    session.verified = true; session.picking = false;
+    setSession(session);
+    this.renderShell();
+    toast('Thank you — you are recognised as ' + m.name + '.');
+    doSync(true);
+  },
+  /* only ever reaches records the lodge holds no email for — carries no office */
   linkMe(memberId){
     const id = memberId || ($('#me_pick') && $('#me_pick').value);
     const m = id && memberById(id);
     if(!m){ toast('Choose your name from the list first.', true); return; }
+    if((m.email||'').trim()){ toast('The lodge holds an email address for that brother — confirm it above instead.', true); return; }
     session.memberId = m.id;
-    session.name = m.name;          // attribute future tasks and messages to the name in the list
-    session.picking = false;
+    session.name = m.name;
+    session.verified = false; session.picking = false;
     setSession(session);
     this.renderShell();
     toast('Thank you — the app now knows you are ' + m.name + '.');
@@ -1611,20 +1654,39 @@ function renderLogin(step, err){
     <div id="login"><div class="box">
       <img src="./logo.jpg" alt="Composite Lodge crest">
       <h1>Composite Lodge No. 4076</h1>
-      <div class="sub">${step==='pass'?'Enter the lodge passcode':'Who are you? Tasks and chat messages will carry your name.'}</div>
+      <div class="sub">${
+        step==='pass'  ? 'Enter the lodge passcode' :
+        step==='guest' ? 'Choose your name. You will be able to read the app and mark your own attendance, but no office or permissions come with it.' :
+                         'Confirm who you are — your email address is matched against the members list.'}</div>
       ${step==='pass' ? `
         <input type="password" id="lg_pass" placeholder="Lodge passcode" autocomplete="current-password"
           onkeydown="if(event.key==='Enter')tryPass()">
         <div class="err">${esc(err||'')}</div>
         <button class="btn" style="width:100%;" onclick="tryPass()">Enter</button>
+      ` : step==='guest' ? `
+        ${(()=>{ const noEmail = names.filter(m=>!(m.email||'').trim());
+          return noEmail.length? `
+            <div class="namelist">
+              ${noEmail.map(m=>`<button onclick="pickName('${jsq(m.name)}','${m.id}')">${esc(m.name)}</button>`).join('')}
+            </div>
+            <div class="small muted" style="margin-top:10px;text-align:left;">Only brethren whose email address the lodge does not hold are listed. Ask the Secretary to add yours so the app can recognise you properly.</div>`
+          : `<div class="small muted" style="padding:12px;">Every member on the list has an email address recorded, so please sign in with yours. If the lodge has the wrong address for you, ask the Secretary.</div>`;
+        })()}
+        <div class="err">${esc(err||'')}</div>
+        <button class="btn ghost" style="width:100%;margin-top:10px;" onclick="renderLogin('who')">← Back</button>
       ` : `
-        <div class="namelist">
-          ${names.length? names.map(m=>`<button onclick="pickName('${jsq(m.name)}','${m.id}')">${esc(m.name)}${m.office?' — '+esc(m.office):''}</button>`).join('')
-            : '<div class="small muted" style="padding:12px;">No members in the list yet — type your name below.</div>'}
-        </div>
-        <input id="lg_name" placeholder="Or type your name" style="margin-top:10px;" onkeydown="if(event.key==='Enter')pickName()">
-        <div class="err"></div>
-        <button class="btn" style="width:100%;" onclick="pickName()">Continue</button>
+        ${names.length? `
+          <input id="lg_email" type="email" autocomplete="email" placeholder="The email address you gave the lodge"
+            onkeydown="if(event.key==='Enter')signInByEmail()">
+          <div class="err">${esc(err||'')}</div>
+          <button class="btn" style="width:100%;" onclick="signInByEmail()">Continue</button>
+          <button class="btn ghost" style="width:100%;margin-top:8px;" onclick="renderLogin('guest')">The lodge doesn’t have my email address</button>
+        ` : `
+          <div class="small muted" style="padding:4px 0 10px;">No members in the list yet — type your name to get started.</div>
+          <input id="lg_name" placeholder="Your name" onkeydown="if(event.key==='Enter')pickName()">
+          <div class="err">${esc(err||'')}</div>
+          <button class="btn" style="width:100%;" onclick="pickName()">Continue</button>
+        `}
       `}
     </div></div>`;
   if(step==='pass') $('#lg_pass').focus();
@@ -1637,15 +1699,26 @@ async function tryPass(){
   if(new URLSearchParams(location.search).has('form')) renderMemberForm();
   else renderLogin('who');
 }
+/* the ordinary way in: prove the address held against your record */
+function signInByEmail(){
+  const v = ($('#lg_email').value||'').trim().toLowerCase();
+  if(!v){ renderLogin('who','Please enter your email address.'); return; }
+  const m = store.members.find(x=>!x.deleted && (x.email||'').trim().toLowerCase()===v);
+  if(!m){ renderLogin('who','That address isn’t on the members list. Check it, or ask the Secretary to add it to your record.'); return; }
+  session = {name:m.name, memberId:m.id, verified:true, token:pendingToken, until: now()+30*864e5};
+  setSession(session);
+  App.renderShell();
+  doSync(true);
+}
+/* fallback for brethren the lodge holds no address for — carries no office */
 function pickName(n, memberId){
   const name = n || $('#lg_name').value.trim();
   if(!name){ return; }
-  // a name typed by hand still matches a record if it is written exactly the same
-  if(!memberId){
-    const m = store.members.find(x=>!x.deleted && x.name.trim().toLowerCase()===name.trim().toLowerCase());
-    if(m) memberId = m.id;
+  if(memberId){
+    const m = memberById(memberId);
+    if(m && (m.email||'').trim()){ renderLogin('guest','Please sign in with that brother’s email address instead.'); return; }
   }
-  session = {name, memberId:memberId||null, token:pendingToken, until: now()+30*864e5};
+  session = {name, memberId:memberId||null, verified:false, token:pendingToken, until: now()+30*864e5};
   setSession(session);
   App.renderShell();
   doSync(true);
