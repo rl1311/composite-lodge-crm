@@ -47,7 +47,7 @@
   #mentionbox button:hover{ background:var(--chip); }
 
   #sidebar{ position:fixed; top:56px; left:0; bottom:0; width:210px; background:var(--navy); padding:14px 10px;
-    display:flex; flex-direction:column; gap:2px; z-index:25; }
+    display:flex; flex-direction:column; gap:2px; z-index:25; overflow-y:auto; }
   #sidebar button{ background:none; color:#B9C0EA; text-align:left; padding:11px 14px; border-radius:8px;
     font-size:14.5px; display:flex; gap:10px; align-items:center; width:100%; }
   #sidebar button.on{ background:rgba(255,255,255,.10); color:#fff; font-weight:600; box-shadow:inset 3px 0 0 var(--gold-bright); }
@@ -75,6 +75,7 @@
   .btn.gold{ background:var(--gold-bright); color:var(--navy-deep); }
   .btn.danger{ background:#F7E2DF; color:var(--danger); }
   .btn.sm{ padding:5px 10px; font-size:12.5px; }
+  .btn.big{ padding:13px 20px; font-size:15.5px; }   /* comfortable on a phone — the answer most brethren tap */
   .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .chip{ display:inline-block; background:var(--chip); color:var(--navy); border-radius:999px; padding:2px 10px; font-size:12px; font-weight:600; }
   .chip.gold{ background:#F7ECC9; color:#7A6114; }
@@ -93,6 +94,13 @@
   .meetcard b{ font-family:var(--serif); color:var(--navy-deep); font-size:17px; display:block; }
   .meetcard span{ font-size:12px; color:var(--muted); }
   .meetcard .type{ display:block; margin-top:6px; font-size:12px; color:#7A6114; font-weight:600; }
+
+  .stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(104px,1fr)); gap:10px; }
+  .stat{ background:var(--chip); border-radius:10px; padding:12px 10px; text-align:center; }
+  .stat b{ display:block; font-family:var(--serif); font-size:26px; color:var(--navy-deep); line-height:1.1; }
+  .stat span{ display:block; font-size:11.5px; color:var(--muted); margin-top:3px; }
+  .stat.gold{ background:#F7ECC9; } .stat.gold b{ color:#7A6114; } .stat.gold span{ color:#7A6114; font-weight:600; }
+  summary::-webkit-details-marker{ color:var(--gold); }
 
   .todo{ display:flex; align-items:center; gap:10px; padding:8px 2px; border-bottom:1px solid var(--chip); flex-wrap:wrap; }
   .todo:last-child{ border-bottom:none; }
@@ -165,11 +173,82 @@ const OFFICES = ['Worshipful Master','Immediate Past Master','Senior Warden','Ju
 const $  = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* a name safe to drop inside a JS single-quoted string that itself sits inside an
+   HTML attribute — without this, a brother named O'Connor breaks his own buttons */
+const jsq = s => esc(String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
 const now = () => Date.now();
 function toast(msg, isErr){ const t=$('#toast'); t.textContent=msg; t.className='show'+(isErr?' err':''); clearTimeout(t._h); t._h=setTimeout(()=>t.className='',3200); }
 function fmtDate(d){ if(!d) return ''; const x=new Date(d+'T00:00'); return isNaN(x)?d:x.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
 function isLate(d){ return d && d < new Date().toISOString().slice(0,10); }
+
+/* ---------------- calendar files (.ics) ----------------
+   Generated on the device — works with iPhone, Android, Outlook and Google
+   Calendar alike, and needs no lodge Google account. */
+function icsEsc(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/[;,]/g, m=>'\\'+m).replace(/\r?\n/g,'\\n'); }
+function icsStamp(d){ return d.toISOString().replace(/[-:]/g,'').split('.')[0]+'Z'; }
+function icsDay(dateStr){ return dateStr.replace(/-/g,''); }
+/* free-text times such as "18:30 for 19:00" — take the first clock time we find */
+function firstClockTime(t){ const m=/(\d{1,2})[:.](\d{2})/.exec(t||''); return m? {h:+m[1], mi:+m[2]} : null; }
+function icsEvent(uidStr, dateStr, timeText, title, place, notes){
+  if(!dateStr) return '';
+  const clock = firstClockTime(timeText);
+  let dtStart, dtEnd;
+  if(clock){
+    const s = new Date(dateStr+'T00:00'); s.setHours(clock.h, clock.mi, 0, 0);
+    const e = new Date(s.getTime() + 3*3600*1000);          // lodge meetings run about three hours
+    const local = d => d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')
+                     +'T'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+'00';
+    dtStart = 'DTSTART:'+local(s); dtEnd = 'DTEND:'+local(e);
+  }else{
+    // all-day events end on the following day; work in UTC so British Summer Time
+    // can't roll the end date back onto the start date
+    const e = new Date(dateStr+'T00:00:00Z'); e.setUTCDate(e.getUTCDate()+1);
+    dtStart = 'DTSTART;VALUE=DATE:'+icsDay(dateStr);
+    dtEnd   = 'DTEND;VALUE=DATE:'+icsDay(e.toISOString().slice(0,10));
+  }
+  return ['BEGIN:VEVENT','UID:'+String(uidStr).replace(/[^\w.-]/g,'-')+'@composite4076','DTSTAMP:'+icsStamp(new Date()),
+    dtStart, dtEnd, 'SUMMARY:'+icsEsc(title),
+    place?'LOCATION:'+icsEsc(place):'', notes?'DESCRIPTION:'+icsEsc(notes):'',
+    'END:VEVENT'].filter(Boolean).join('\r\n');
+}
+function downloadIcs(filename, events){
+  const body = events.filter(Boolean);
+  if(!body.length){ toast('Set a date first, then it can be added to your calendar.', true); return; }
+  const text = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Composite Lodge 4076//Lodge Manager//EN',
+                'CALSCALE:GREGORIAN', ...body, 'END:VCALENDAR'].join('\r\n');
+  const blob = new Blob([text], {type:'text/calendar;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  toast('Calendar file downloaded — open it to add it to your calendar.');
+}
+
+/* ---------------- attendance helpers ----------------
+   store.meetings[id].attend is keyed by member id:
+     { status:'yes'|'no', dining:true/false, at:timestamp, by:name } */
+function meetingTitle(m){
+  const row = MONTHS.find(x=>x[0]===m.month);
+  if(!row) return 'Lodge meeting';
+  const year = Number(m.season.slice(0,4)) + row[3];
+  return row[1]+' '+year+(m.type? ' — '+m.type : '');
+}
+function attendOf(m, memberId){ return (m.attend||{})[memberId] || null; }
+function attendTally(m){
+  const attend = m.attend||{};
+  const live = new Set(store.members.filter(x=>!x.deleted).map(x=>x.id));
+  let yes=0, no=0, dining=0;
+  Object.keys(attend).forEach(id=>{
+    if(!live.has(id)) return;                     // ignore answers from removed members
+    const a = attend[id];
+    if(a.status==='yes'){ yes++; if(a.dining) dining++; }
+    else if(a.status==='no') no++;
+  });
+  const vis = (m.visitors||[]).filter(v=>!v.deleted);
+  return { yes, no, dining, visitors:vis.length, visitorsDining:vis.filter(v=>v.dining).length,
+           awaiting: store.members.filter(x=>!x.deleted).length - yes - no,
+           totalDining: dining + vis.filter(v=>v.dining).length };
+}
 async function sha256(text){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -181,10 +260,12 @@ function b64decode(b64){ const bin=atob(b64.replace(/\n/g,'')); const bytes=Uint
 function freshStore(){
   const meetings = {};
   SEASONS.forEach(se => MONTHS.forEach(([key]) => {
-    meetings[se+'|'+key] = { id:se+'|'+key, season:se, month:key, type:'', notes:'', festive:'', fieldsAt:0, todos:[] };
+    meetings[se+'|'+key] = { id:se+'|'+key, season:se, month:key, type:'', date:'', time:'', place:'',
+                             notes:'', festive:'', fieldsAt:0, todos:[], attend:{}, visitors:[] };
   }));
   return { members:[], meetings, events:[], notices:[], photos:{albumUrl:'', updatedAt:0},
-           lodgeChat:[], perms:{managers:[], updatedAt:0}, todos:[], push:[] };
+           lodgeChat:[], perms:{managers:[], updatedAt:0}, todos:[], push:[], subs:[],
+           subsRate:{amount:'', updatedAt:0} };
 }
 function load(){
   try{
@@ -358,6 +439,16 @@ function mergeChat(a, b){
   (a||[]).concat(b||[]).forEach(x=>map.set(x.id, x));
   return [...map.values()].sort((x,y)=>x.at-y.at);
 }
+/* attendance is keyed by member id — each brother's own answer wins on its own timestamp,
+   so two people answering on two devices never overwrite each other */
+function mergeAttend(a, b){
+  const out = {...(a||{})};
+  Object.keys(b||{}).forEach(k=>{
+    const cur = out[k], nxt = b[k];
+    if(!cur || (nxt.at||0) > (cur.at||0)) out[k] = nxt;
+  });
+  return out;
+}
 function mergeStores(remote, local){
   if(!remote) return local;
   const out = freshStore();
@@ -367,8 +458,11 @@ function mergeStores(remote, local){
   Object.keys(out.meetings).forEach(k=>{
     const r=(remote.meetings||{})[k], l=(local.meetings||{})[k], base=out.meetings[k];
     const scal = (r && l) ? ((r.fieldsAt||0)>=(l.fieldsAt||0)?r:l) : (r||l||base);
-    out.meetings[k] = {...base, type:scal.type||'', notes:scal.notes||'', festive:scal.festive||'',
-      fieldsAt:scal.fieldsAt||0, todos:mergeById(r&&r.todos, l&&l.todos)};
+    out.meetings[k] = {...base, type:scal.type||'', date:scal.date||'', time:scal.time||'', place:scal.place||'',
+      notes:scal.notes||'', festive:scal.festive||'', fieldsAt:scal.fieldsAt||0,
+      todos:mergeById(r&&r.todos, l&&l.todos),
+      attend:mergeAttend(r&&r.attend, l&&l.attend),
+      visitors:mergeById(r&&r.visitors, l&&l.visitors)};
   });
   // events: scalars by fieldsAt; todos & chat merged
   const evMap = new Map();
@@ -385,6 +479,9 @@ function mergeStores(remote, local){
   out.perms = ((remote.perms||{}).updatedAt||0) >= ((local.perms||{}).updatedAt||0) ? (remote.perms||out.perms) : local.perms;
   out.todos = mergeById(remote.todos, local.todos);
   out.push = mergeById(remote.push, local.push);
+  out.subs = mergeById(remote.subs, local.subs);
+  out.subsRate = ((remote.subsRate||{}).updatedAt||0) >= ((local.subsRate||{}).updatedAt||0)
+    ? (remote.subsRate||out.subsRate) : local.subsRate;
   return out;
 }
 
@@ -518,16 +615,25 @@ function todosFor(ctx){
    APP (views + actions)
    ===================================================================== */
 const App = {
-  view:'members', sub:null, season:SEASONS[0], showDone:{}, drawer:false,
+  view:'members', sub:null, season:SEASONS[0], subSeason:SEASONS[0], q:'', showDone:{}, drawer:false,
 
   /* ---------- shell ---------- */
-  rerender(){ if(session) this.renderShell(); },
+  rerender(){
+    if(!session) return;
+    // a background sync must not wipe what someone is typing into the search box
+    if(this.view==='search' && document.activeElement && document.activeElement.id==='sq'){
+      const el=$('#searchresults'); if(el) el.innerHTML=this.searchResultsHtml();
+      return;
+    }
+    this.renderShell();
+  },
   go(view, sub){ this.view=view; this.sub=(sub===undefined?null:sub); this.drawer=false; this.renderShell(); window.scrollTo(0,0); },
 
   renderShell(){
     const nav = [ ['members','Members','👤'], ['meetings','Meetings','📖'], ['events','Events','🎉'],
-                  ['todo','To-Do','✅'], ['chat','Lodge Chat','💬'], ['notices','Lodge Notices','📌'],
-                  ['photos','Photos','📷'], ['settings','Settings','⚙'] ];
+                  ['subs','Subscriptions','💷'], ['todo','To-Do','✅'], ['chat','Lodge Chat','💬'],
+                  ['notices','Lodge Notices','📌'], ['photos','Photos','📷'], ['search','Search','🔍'],
+                  ['settings','Settings','⚙'] ];
     const unread = unreadCount();
     $('#app').innerHTML = `
       <div id="topbar">
@@ -631,12 +737,24 @@ const App = {
         ${MONTHS.map(([key,label,ord,yearOffset])=>{
           const m = store.meetings[this.season+'|'+key];
           const year = Number(this.season.slice(0,4)) + yearOffset;
+          const t = m ? attendTally(m) : null;
           return `<div class="meetcard" role="button" tabindex="0" onclick="App.go('meetings','${this.season}|${key}')"
                     onkeydown="if(event.key==='Enter')App.go('meetings','${this.season}|${key}')">
-            <b>${label}</b><span>${ord} · ${year}</span>
+            <b>${label}</b><span>${m&&m.date? fmtDate(m.date) : ord+' · '+year}</span>
             ${m&&m.type?`<span class="type">${esc(m.type)}</span>`:'<span class="type" style="color:#8A8FB0;font-weight:400;">type not set</span>'}
+            ${t&&(t.yes||t.visitors)?`<span class="small muted" style="display:block;margin-top:4px;">${t.yes} attending${t.visitors?' · '+t.visitors+' visiting':''}</span>`:''}
           </div>`;}).join('')}
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <button class="btn ghost sm" onclick="App.seasonToCalendar()">📅 Add this season's meetings to my calendar</button>
       </div>`;
+  },
+  seasonToCalendar(){
+    const evs = MONTHS.map(([key])=>{
+      const m = store.meetings[this.season+'|'+key];
+      return m && m.date ? icsEvent(m.id, m.date, m.time, 'Composite Lodge 4076 — '+meetingTitle(m), m.place, m.notes) : '';
+    });
+    downloadIcs('composite-lodge-'+this.season.replace('/','-')+'.ics', evs);
   },
   meetingDetail(id){
     const m = store.meetings[id];
@@ -652,7 +770,18 @@ const App = {
             onchange="App.meetingField('${id}','type',this.value)">
           <datalist id="meetingTypes">${MEETING_TYPES.map(t=>`<option value="${t}">`).join('')}</datalist>
         </div>
+        <div class="grid2">
+          <div class="field"><label>Date</label>
+            <input type="date" id="mt_date" value="${esc(m.date)}" onchange="App.meetingField('${id}','date',this.value)"></div>
+          <div class="field"><label>Time</label>
+            <input id="mt_time" value="${esc(m.time)}" placeholder="e.g. 16:00 for 16:30" onchange="App.meetingField('${id}','time',this.value)"></div>
+        </div>
+        <div class="field"><label>Where</label>
+          <input id="mt_place" value="${esc(m.place)}" placeholder="e.g. Freemasons' Hall, Great Queen Street" onchange="App.meetingField('${id}','place',this.value)"></div>
+        <button class="btn ghost sm" onclick="App.meetingToCalendar('${id}')">📅 Add to my calendar</button>
       </div>
+      ${this.attendanceCard(m)}
+      ${this.visitorsCard(m)}
       <div class="card"><h4>Notes</h4>
         <textarea id="mt_notes" placeholder="Meeting notes…" onchange="App.meetingField('${id}','notes',this.value)">${esc(m.notes)}</textarea>
       </div>
@@ -664,7 +793,135 @@ const App = {
   meetingField(id, field, value){
     const m = store.meetings[id]; if(!m) return;
     m[field]=value; m.fieldsAt=now(); save(); toast('Saved.');
-    if(field==='type') this.renderShell();
+    if(field==='type'||field==='date') this.renderShell();
+    doSync(true);
+  },
+  meetingToCalendar(id){
+    const m = store.meetings[id]; if(!m) return;
+    downloadIcs('composite-lodge-'+id.replace(/[|/]/g,'-')+'.ics',
+      [icsEvent(m.id, m.date, m.time, 'Composite Lodge 4076 — '+meetingTitle(m), m.place, m.notes)]);
+  },
+
+  /* ---------- attendance & dining ---------- */
+  attendanceCard(m){
+    const me = currentMember(), t = attendTally(m), manage = canManage();
+    const mine = me ? attendOf(m, me.id) : null;
+    const roll = sortedMembers();
+    return `
+      <div class="card"><h4>Attendance &amp; dining</h4>
+        ${me ? `
+        <div style="background:var(--chip);border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+          <b style="font-family:var(--serif);font-size:16px;color:var(--navy-deep);">Will you be at this meeting?</b>
+          <div class="row" style="margin-top:10px;">
+            <button class="btn big ${mine&&mine.status==='yes'?'':'ghost'}" onclick="App.setAttend('${m.id}','${me.id}','yes')">✓ Yes, I'll be there</button>
+            <button class="btn big ${mine&&mine.status==='no'?'danger':'ghost'}" onclick="App.setAttend('${m.id}','${me.id}','no')">✕ I can't make it</button>
+          </div>
+          ${mine&&mine.status==='yes'? `
+          <label class="row" style="margin-top:12px;gap:9px;cursor:pointer;flex-wrap:nowrap;">
+            <input type="checkbox" style="width:19px;height:19px;accent-color:var(--navy);flex:none;" ${mine.dining?'checked':''}
+              onchange="App.setDining('${m.id}','${me.id}',this.checked)">
+            <span>I'm staying for the Festive Board</span>
+          </label>` : ''}
+          ${mine? `<div class="small muted" style="margin-top:10px;">Your answer is saved${mine.status==='yes'&&!mine.dining?' — do tick the Festive Board if you’re dining':''}. You can change it any time.</div>`
+                : `<div class="small muted" style="margin-top:10px;">Tap an answer — the Secretary sees the numbers straight away.</div>`}
+        </div>` : `<p class="small muted">Your name isn't in the Members list yet, so you can't mark your own attendance here. Ask the Secretary to add you.</p>`}
+
+        <div class="stats">
+          <div class="stat"><b>${t.yes}</b><span>attending</span></div>
+          <div class="stat"><b>${t.visitors}</b><span>visitors</span></div>
+          <div class="stat gold"><b>${t.totalDining}</b><span>dining — the caterer's number</span></div>
+          <div class="stat"><b>${t.no}</b><span>apologies</span></div>
+          <div class="stat"><b>${t.awaiting<0?0:t.awaiting}</b><span>yet to answer</span></div>
+        </div>
+
+        <details style="margin-top:14px;">
+          <summary style="cursor:pointer;font-weight:600;color:var(--navy);">See who has answered (${roll.length} members)</summary>
+          <div class="tablewrap" style="margin-top:10px;"><table>
+            <tr><th>Member</th><th>Attending</th><th>Dining</th>${manage?'<th>Mark for him</th>':''}</tr>
+            ${roll.map(mem=>{
+              const a = attendOf(m, mem.id);
+              const status = !a||!a.status ? '<span class="muted">—</span>'
+                : a.status==='yes' ? '<span class="chip" style="background:#E3F2E4;color:#2E7D32;">Yes</span>'
+                : '<span class="chip" style="background:#F7E2DF;color:#B03A2E;">No</span>';
+              return `<tr>
+                <td>${esc(mem.name)}${mem.office?` <span class="muted small">· ${esc(mem.office)}</span>`:''}</td>
+                <td>${status}</td>
+                <td>${a&&a.status==='yes'&&a.dining?'🍽':'<span class="muted">—</span>'}</td>
+                ${manage?`<td>
+                  <button class="btn ghost sm" onclick="App.setAttend('${m.id}','${mem.id}','yes')">Yes</button>
+                  <button class="btn ghost sm" onclick="App.setAttend('${m.id}','${mem.id}','no')">No</button>
+                  ${a&&a.status==='yes'?`<button class="btn ghost sm" onclick="App.setDining('${m.id}','${mem.id}',${a.dining?'false':'true'})">${a.dining?'Not dining':'Dining'}</button>`:''}
+                </td>`:''}
+              </tr>`;}).join('')}
+          </table></div>
+          ${manage?'<div class="muted small" style="margin-top:8px;">Use these buttons for brethren who reply by phone or in person rather than through the app.</div>':''}
+        </details>
+      </div>`;
+  },
+  setAttend(mid, memberId, status){
+    const m = store.meetings[mid]; if(!m) return;
+    const me = currentMember();
+    if(!canManage() && (!me || me.id!==memberId)){ toast('You can only answer for yourself.', true); return; }
+    m.attend = m.attend||{};
+    const prev = m.attend[memberId]||{};
+    m.attend[memberId] = {status, dining: status==='yes' ? !!prev.dining : false, at:now(), by:session.name};
+    save(); this.renderShell(); doSync(true);
+  },
+  setDining(mid, memberId, dining){
+    const m = store.meetings[mid]; if(!m) return;
+    const me = currentMember();
+    if(!canManage() && (!me || me.id!==memberId)){ toast('You can only answer for yourself.', true); return; }
+    m.attend = m.attend||{};
+    const prev = m.attend[memberId]||{status:'yes'};
+    m.attend[memberId] = {...prev, status:'yes', dining:!!dining, at:now(), by:session.name};
+    save(); this.renderShell(); doSync(true);
+  },
+
+  /* ---------- visitors ---------- */
+  visitorsCard(m){
+    const vis = (m.visitors||[]).filter(v=>!v.deleted);
+    return `
+      <div class="card"><h4>Visitors</h4>
+        <div class="muted small" style="margin-bottom:10px;">Brethren visiting from other lodges. Anyone can add a visitor they are bringing — they count towards the dining numbers.</div>
+        ${vis.length? `<div class="tablewrap"><table>
+          <tr><th>Visitor</th><th>Lodge</th><th>Hosted by</th><th>Dining</th><th></th></tr>
+          ${vis.map(v=>`<tr>
+            <td><b>${esc(v.name)}</b></td>
+            <td>${esc(v.lodge)||'<span class="muted">—</span>'}</td>
+            <td>${esc(v.host||v.by||'')}</td>
+            <td><input type="checkbox" style="width:18px;height:18px;accent-color:var(--navy);" ${v.dining?'checked':''}
+                  onchange="App.visitorDining('${m.id}','${v.id}',this.checked)" aria-label="Dining"></td>
+            <td><button class="btn ghost sm" onclick="App.visitorDel('${m.id}','${v.id}')" aria-label="Remove visitor">✕</button></td>
+          </tr>`).join('')}
+        </table></div>` : '<div class="muted small">No visitors listed yet.</div>'}
+        <div class="row" style="margin-top:12px;">
+          <input id="vs_name_${m.id}" placeholder="Visitor's name" style="max-width:190px;">
+          <input id="vs_lodge_${m.id}" placeholder="His lodge" style="max-width:190px;">
+          <label class="row" style="gap:7px;flex-wrap:nowrap;cursor:pointer;">
+            <input type="checkbox" id="vs_dine_${m.id}" checked style="width:18px;height:18px;accent-color:var(--navy);flex:none;">
+            <span class="small">Dining</span>
+          </label>
+          <button class="btn sm" onclick="App.visitorAdd('${m.id}')">Add visitor</button>
+        </div>
+      </div>`;
+  },
+  visitorAdd(mid){
+    const m = store.meetings[mid]; if(!m) return;
+    const name = document.getElementById('vs_name_'+mid).value.trim();
+    if(!name){ toast('Type the visitor’s name first.', true); return; }
+    m.visitors = m.visitors||[];
+    m.visitors.push({id:uid(), name, lodge:document.getElementById('vs_lodge_'+mid).value.trim(),
+      dining:document.getElementById('vs_dine_'+mid).checked, host:session.name, by:session.name, updatedAt:now()});
+    save(); this.renderShell(); doSync(true);
+  },
+  visitorDining(mid, vid, dining){
+    const v = (store.meetings[mid].visitors||[]).find(x=>x.id===vid); if(!v) return;
+    v.dining = !!dining; v.updatedAt = now(); save(); this.renderShell(); doSync(true);
+  },
+  visitorDel(mid, vid){
+    const v = (store.meetings[mid].visitors||[]).find(x=>x.id===vid); if(!v) return;
+    if(!confirm('Remove '+v.name+' from the visitor list?')) return;
+    v.deleted = true; v.updatedAt = now(); save(); this.renderShell(); doSync(true);
   },
 
   /* ================= EVENTS ================= */
@@ -760,6 +1017,7 @@ const App = {
           <div style="grid-column:1/-1;"><b>Location:</b> ${esc(e.location)||'TBC'}</div>
           ${e.notes?`<div style="grid-column:1/-1;white-space:pre-wrap;">${esc(e.notes)}</div>`:''}
         </div>
+        <div style="margin-top:12px;"><button class="btn ghost sm" onclick="App.eventToCalendar('${id}')">📅 Add to my calendar</button></div>
       </div>
       <div class="card"><h4>To-do</h4>${todoListHtml(e.todos, 'ev_'+id)}</div>
       ${(onCommittee(e) || isOwner())? `
@@ -777,6 +1035,11 @@ const App = {
       <div class="card"><h4>Committee chat</h4>
         <div class="muted small">This chat is private to the event's committee. You'll see it here if you are added to the committee.</div>
       </div>`}`;
+  },
+  eventToCalendar(id){
+    const e = store.events.find(x=>x.id===id); if(!e) return;
+    downloadIcs('composite-lodge-'+e.name.replace(/[^\w]+/g,'-').toLowerCase()+'.ics',
+      [icsEvent(e.id, e.date, e.time, e.name+' — Composite Lodge 4076', e.location, e.notes)]);
   },
   committeeAddMember(id){
     const sel=$('#cm_member'); if(!sel.value) return;
@@ -799,6 +1062,116 @@ const App = {
     save(); this.renderShell(); doSync(true);
   },
 
+  /* ================= SUBSCRIPTIONS =================
+     One record per member per season, id = memberId|season, so two devices
+     editing different brethren never collide. Figures are visible only to the
+     Secretary/Treasurer and anyone given permission; everyone else sees his own. */
+  subFor(memberId, season){
+    const id = memberId+'|'+season;
+    let r = (store.subs||[]).find(x=>x.id===id);
+    if(!r){ r = {id, memberId, season, paid:false, amount:'', paidOn:'', updatedAt:0}; (store.subs=store.subs||[]).push(r); }
+    return r;
+  },
+  view_subs(){
+    const season = this.subSeason || SEASONS[0];
+    const manage = canManage(), me = currentMember();
+    const rate = (store.subsRate||{}).amount||'';
+    const money = v => { const n=parseFloat(String(v).replace(/[^0-9.]/g,'')); return isNaN(n)?0:n; };
+
+    if(!manage){
+      if(!me) return `<h2>Subscriptions</h2><div class="card"><p class="small muted">Your name isn't in the Members list yet, so there is nothing to show. Ask the Secretary to add you.</p></div>`;
+      const r = (store.subs||[]).find(x=>x.id===me.id+'|'+season);
+      return `
+        <h2>Subscriptions</h2>
+        ${this.subsSeasonPicker(season)}
+        <div class="card">
+          <h4>Your subscription — ${esc(season)}</h4>
+          ${r&&r.paid
+            ? `<p style="color:var(--ok);font-size:16px;"><b>✓ Paid</b>${r.amount?' — £'+esc(r.amount):''}${r.paidOn?' on '+fmtDate(r.paidOn):''}</p>`
+            : `<p><b>Not yet recorded as paid.</b>${rate?' The subscription for this season is £'+esc(rate)+'.':''}</p>
+               <p class="small muted">If you have paid, let the Treasurer know — he records it here.</p>`}
+        </div>
+        <div class="card"><p class="small muted">The full subscriptions list is visible to the Secretary and Treasurer only.</p></div>`;
+    }
+
+    const ms = sortedMembers();
+    const rows = ms.map(m=>({m, r:(store.subs||[]).find(x=>x.id===m.id+'|'+season)}));
+    return `
+      <h2>Subscriptions</h2>
+      ${this.subsSeasonPicker(season)}
+      <div class="card">
+        <div id="subsstats">${this.subsStatsHtml(season)}</div>
+        <div class="row" style="margin-top:14px;">
+          <label class="small muted" for="sb_rate">Subscription for a season</label>
+          <input id="sb_rate" value="${esc(rate)}" placeholder="e.g. 150" style="max-width:110px;" onchange="App.saveSubsRate(this.value)">
+          <span class="muted small">Used to fill in each amount and work out what is still due.</span>
+        </div>
+      </div>
+      <div class="card"><div class="tablewrap"><table>
+        <tr><th>Member</th><th>Paid</th><th>Amount £</th><th>Date paid</th></tr>
+        ${ms.length? rows.map(({m,r})=>`<tr>
+          <td><b>${esc(m.name)}</b>${m.office?` <span class="muted small">· ${esc(m.office)}</span>`:''}</td>
+          <td><input type="checkbox" style="width:19px;height:19px;accent-color:var(--navy);" ${r&&r.paid?'checked':''}
+                onchange="App.subPaid('${m.id}','${season}',this.checked)" aria-label="Paid"></td>
+          <td><input value="${esc(r?r.amount:'')}" placeholder="${esc(rate)}" style="max-width:90px;"
+                onchange="App.subField('${m.id}','${season}','amount',this.value)"></td>
+          <td><input type="date" value="${esc(r?r.paidOn:'')}" style="max-width:150px;"
+                onchange="App.subField('${m.id}','${season}','paidOn',this.value)"></td>
+        </tr>`).join('') : `<tr><td colspan="4" class="empty">Add members first and they'll appear here.</td></tr>`}
+      </table></div></div>
+      <p class="muted small">Ticking <b>Paid</b> fills in the amount and today's date for you — change either if it differs.</p>`;
+  },
+  subsStatsHtml(season){
+    const money = v => { const n=parseFloat(String(v).replace(/[^0-9.]/g,'')); return isNaN(n)?0:n; };
+    const pounds = n => '£'+n.toFixed(2).replace(/\.00$/,'');
+    const rate = (store.subsRate||{}).amount||'';
+    const ms = sortedMembers();
+    const rows = ms.map(m=>(store.subs||[]).find(x=>x.id===m.id+'|'+season));
+    const paid = rows.filter(r=>r&&r.paid);
+    const collected = paid.reduce((s,r)=>s+money(r.amount||rate), 0);
+    const stillDue = (ms.length-paid.length) * money(rate);
+    return `<div class="stats">
+      <div class="stat"><b>${paid.length}</b><span>paid</span></div>
+      <div class="stat"><b>${ms.length-paid.length}</b><span>outstanding</span></div>
+      <div class="stat gold"><b>${pounds(collected)}</b><span>collected</span></div>
+      ${money(rate)?`<div class="stat"><b>${pounds(stillDue)}</b><span>still due</span></div>`:''}
+    </div>`;
+  },
+  refreshSubsStats(season){
+    const el = $('#subsstats');
+    if(el) el.innerHTML = this.subsStatsHtml(season);
+  },
+  subsSeasonPicker(season){
+    return `<div class="row" style="margin-bottom:14px;">
+      <label class="small muted" for="sbSeason">Season</label>
+      <select id="sbSeason" style="max-width:140px;" onchange="App.subSeason=this.value;App.renderShell()">
+        ${SEASONS.map(s=>`<option ${season===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+    </div>`;
+  },
+  subPaid(memberId, season, paid){
+    if(!canManage()){ toast('Only the Secretary and Treasurer can record subscriptions.', true); return; }
+    const r = this.subFor(memberId, season);
+    r.paid = !!paid; r.updatedAt = now();
+    if(paid){
+      if(!r.amount) r.amount = (store.subsRate||{}).amount||'';
+      if(!r.paidOn) r.paidOn = new Date().toISOString().slice(0,10);
+    }
+    save(); this.renderShell(); doSync(true);
+  },
+  subField(memberId, season, field, value){
+    if(!canManage()){ toast('Only the Secretary and Treasurer can record subscriptions.', true); return; }
+    const r = this.subFor(memberId, season);
+    r[field] = value.trim ? value.trim() : value; r.updatedAt = now();
+    save(); this.refreshSubsStats(season);   // totals update without disturbing the field being edited
+    doSync(true); toast('Saved.');
+  },
+  saveSubsRate(v){
+    if(!canManage()){ toast('Only the Secretary and Treasurer can change this.', true); return; }
+    store.subsRate = {amount:v.trim(), updatedAt:now()};
+    save(); this.renderShell(); doSync(true); toast('Saved.');
+  },
+
   /* ================= TO-DO (whole lodge) ================= */
   view_todo(){
     return `
@@ -808,6 +1181,95 @@ const App = {
         ${todoListHtml(store.todos, 'gen')}
       </div>`;
   },
+
+  /* ================= SEARCH =================
+     Looks through everything this member is allowed to see. */
+  view_search(){
+    return `
+      <h2>Search</h2>
+      <div class="card">
+        <div class="field" style="margin-bottom:8px;">
+          <label>Search the whole lodge app</label>
+          <input id="sq" value="${esc(this.q||'')}" autocomplete="off"
+            placeholder="A name, a lodge, a note, a task, a notice…" oninput="App.search(this.value)">
+        </div>
+        <div class="muted small">Members, meetings, visitors, events, notices, tasks and chat messages.</div>
+      </div>
+      <div id="searchresults">${this.searchResultsHtml()}</div>`;
+  },
+  search(v){
+    this.q = v;
+    const el = $('#searchresults');
+    if(el) el.innerHTML = this.searchResultsHtml();
+  },
+  searchHits(){
+    const q = (this.q||'').trim().toLowerCase();
+    if(q.length < 2) return null;
+    const out = [];
+    const hit = (icon, title, sub, view, sub2) => out.push({icon, title, sub, view, sub2});
+    const has = (...vals) => vals.some(v => v && String(v).toLowerCase().includes(q));
+
+    sortedMembers().forEach(m=>{
+      if(has(m.name, m.phone, m.email, m.rank, m.office))
+        hit('👤', m.name, [m.office, m.rank, m.phone, m.email].filter(Boolean).join(' · '), 'members', null);
+    });
+    Object.values(store.meetings).forEach(m=>{
+      const label = meetingTitle(m);
+      if(has(m.type, m.notes, m.festive, m.place, m.date))
+        hit('📖', label, [m.date?fmtDate(m.date):'', m.place, m.notes, m.festive].filter(Boolean).join(' · ').slice(0,150), 'meetings', m.id);
+      (m.visitors||[]).filter(v=>!v.deleted).forEach(v=>{
+        if(has(v.name, v.lodge, v.host))
+          hit('🤝', v.name+(v.lodge?' — '+v.lodge:''), 'Visitor at '+label, 'meetings', m.id);
+      });
+      (m.todos||[]).filter(t=>!t.deleted).forEach(t=>{
+        if(has(t.task, t.name)) hit('✅', t.task, (t.name?t.name+' · ':'')+label+(t.done?' · done':''), 'meetings', m.id);
+      });
+    });
+    store.events.filter(e=>!e.deleted).forEach(e=>{
+      if(has(e.name, e.location, e.notes, e.time))
+        hit('🎉', e.name, [e.date?fmtDate(e.date):'date TBC', e.location, e.notes].filter(Boolean).join(' · ').slice(0,150), 'events', e.id);
+      (e.committee||[]).forEach(c=>{
+        const m = c.memberId ? memberById(c.memberId) : null;
+        if(has(m?m.name:c.name)) hit('🎉', (m?m.name:c.name), 'On the committee for “'+e.name+'”', 'events', e.id);
+      });
+      (e.todos||[]).filter(t=>!t.deleted).forEach(t=>{
+        if(has(t.task, t.name)) hit('✅', t.task, (t.name?t.name+' · ':'')+'“'+e.name+'”'+(t.done?' · done':''), 'events', e.id);
+      });
+      if(onCommittee(e) || isOwner()) (e.chat||[]).forEach(c=>{
+        if(has(c.text, c.who)) hit('💬', c.text, c.who+' · “'+e.name+'” chat', 'events', e.id);
+      });
+    });
+    (store.todos||[]).filter(t=>!t.deleted).forEach(t=>{
+      if(has(t.task, t.name)) hit('✅', t.task, (t.name?t.name+' · ':'')+'lodge to-do list'+(t.done?' · done':''), 'todo', null);
+    });
+    store.notices.filter(n=>!n.deleted).forEach(n=>{
+      if(has(n.title, n.body, n.by, n.attachment&&n.attachment.name))
+        hit('📌', n.title, 'Notice from '+n.by+(n.body?' · '+n.body.slice(0,110):''), 'notices', null);
+    });
+    (store.lodgeChat||[]).forEach(c=>{
+      if(has(c.text, c.who)) hit('💬', c.text, c.who+' · Lodge Chat', 'chat', null);
+    });
+    return out;
+  },
+  searchResultsHtml(){
+    const hits = this.searchHits();
+    if(hits === null) return `<div class="card empty"><img src="./logo.jpg" alt=""><br>Type at least two letters to search.</div>`;
+    this._hits = hits;
+    if(!hits.length) return `<div class="card empty">Nothing found for “${esc(this.q)}”.</div>`;
+    return `<div class="card" style="padding:6px 0;">
+      ${hits.slice(0,80).map((h,i)=>`
+        <div role="button" tabindex="0" onclick="App.searchGo(${i})" onkeydown="if(event.key==='Enter')App.searchGo(${i})"
+             style="display:flex;gap:12px;align-items:flex-start;padding:11px 18px;border-bottom:1px solid var(--chip);cursor:pointer;">
+          <span style="font-size:17px;" aria-hidden="true">${h.icon}</span>
+          <span style="flex:1;min-width:0;">
+            <b style="color:var(--navy-deep);">${esc(h.title)}</b>
+            ${h.sub?`<span class="muted small" style="display:block;">${esc(h.sub)}</span>`:''}
+          </span>
+        </div>`).join('')}
+      ${hits.length>80?`<div class="muted small" style="padding:10px 18px;">Showing the first 80 of ${hits.length} matches — try a more specific word.</div>`:''}
+    </div>`;
+  },
+  searchGo(i){ const h=this._hits && this._hits[i]; if(h) this.go(h.view, h.sub2); },
 
   /* ================= NOTIFICATIONS ================= */
   view_notifications(){
@@ -841,7 +1303,7 @@ const App = {
     const hits = sortedMembers().filter(m => m.name.toLowerCase().startsWith(q)).slice(0,6);
     if(!hits.length){ box.hidden = true; return; }
     this._mentionEl = el;
-    box.innerHTML = hits.map(m=>`<button type="button" onmousedown="event.preventDefault();App.mentionPick('${esc(m.name)}')">@${esc(m.name)}</button>`).join('');
+    box.innerHTML = hits.map(m=>`<button type="button" onmousedown="event.preventDefault();App.mentionPick('${jsq(m.name)}')">@${esc(m.name)}</button>`).join('');
     const r = el.getBoundingClientRect();
     box.style.left = Math.min(r.left, window.innerWidth-230)+'px';
     box.style.top = (r.bottom+4)+'px';
@@ -1108,7 +1570,7 @@ function renderLogin(step, err){
         <button class="btn" style="width:100%;" onclick="tryPass()">Enter</button>
       ` : `
         <div class="namelist">
-          ${names.length? names.map(m=>`<button onclick="pickName('${esc(m.name)}')">${esc(m.name)}${m.office?' — '+esc(m.office):''}</button>`).join('')
+          ${names.length? names.map(m=>`<button onclick="pickName('${jsq(m.name)}')">${esc(m.name)}${m.office?' — '+esc(m.office):''}</button>`).join('')
             : '<div class="small muted" style="padding:12px;">No members in the list yet — type your name below.</div>'}
         </div>
         <input id="lg_name" placeholder="Or type your name" style="margin-top:10px;" onkeydown="if(event.key==='Enter')pickName()">
