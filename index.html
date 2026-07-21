@@ -338,14 +338,14 @@ function currentMember(){
 }
 /* A session is "verified" only when the person proved the email address held
    against his record. Office and permissions hang off this, so that knowing the
-   shared passcode is never enough on its own to sign in as the Secretary. */
+   shared passcode is never enough on its own to sign in as the app administrator. */
 function isVerified(){ return !!(session && session.verified && currentMember()); }
 /* Shown wherever the app needs to know who you are but hasn't been told.
    Identity comes from the email address the brother himself registered — never
    from a list of names anyone could pick out of. */
 function identifyHtml(lead){
   const ms = sortedMembers();
-  if(!ms.length) return `<p class="small muted">${lead} There are no members in the list yet — ask the Secretary to add you.</p>`;
+  if(!ms.length) return `<p class="small muted">${lead} There are no members in the list yet — ask the app administrator to add you.</p>`;
   const noEmail = ms.filter(m=>!(m.email||'').trim());
   return `
     <div style="background:#FBF7E8;border:1px solid #E8DCAF;border-radius:10px;padding:14px 16px;">
@@ -366,7 +366,7 @@ function identifyHtml(lead){
           </select>
           <button class="btn ghost" onclick="App.linkMe()">That’s me</button>
         </div>
-        <p class="small muted" style="margin-top:8px;">Only brethren whose email address the lodge does not hold appear here, and choosing a name this way never carries any office or permission. Ask the Secretary to add your address so the app can recognise you properly.</p>
+        <p class="small muted" style="margin-top:8px;">Only brethren whose email address the lodge does not hold appear here, and choosing a name this way never carries any office or permission. Ask the app administrator to add your address so the app can recognise you properly.</p>
       </details>` : ''}
     </div>`;
 }
@@ -448,7 +448,7 @@ function buildNotifications(){
     if(f.deleted || !notMe(f.by)) return;
     push('fl_'+f.id,'📎', `${f.by} added “${f.name}” to ${meetingTitle(m)}`, f.at, 'meetings', m.id);
   }));
-  // Festive Board bookings — the Secretary and whoever he has permitted
+  // Festive Board bookings — the app administrator and whoever he has permitted
   if(canManage()) Object.values(store.meetings).forEach(m=>{
     const where = meetingTitle(m);
     Object.keys(m.attend||{}).forEach(k=>{
@@ -593,7 +593,7 @@ function notifyIds(s){
   (s.events||[]).forEach(e=>{ (e.todos||[]).forEach(todo); (e.chat||[]).forEach(c=>ids.add('c'+c.id)); });
   (s.lodgeChat||[]).forEach(c=>ids.add('c'+c.id));
   (s.notices||[]).forEach(n=>ids.add('n'+n.id));
-  // a Festive Board booking is worth waking the Secretary for; changing an
+  // a Festive Board booking is worth waking the app administrator for; changing an
   // existing one is not, so the id deliberately carries no timestamp
   Object.values(s.meetings||{}).forEach(m=>{
     // only once the meal is chosen — ticking "dining" alone is not yet a booking,
@@ -946,7 +946,7 @@ const App = {
           </label>
           ${mine.dining? this.diningFormHtml(m, me.id, mine, 'm') : ''}` : ''}
           ${mine? `<div class="small muted" style="margin-top:10px;">Your answer is saved${mine.status==='yes'&&!mine.dining?' — do tick the Festive Board if you’re dining':''}. You can change it any time.</div>`
-                : `<div class="small muted" style="margin-top:10px;">Tap an answer — the Secretary sees the numbers straight away.</div>`}
+                : `<div class="small muted" style="margin-top:10px;">Tap an answer — the numbers update straight away.</div>`}
         </div>` : identifyHtml('The app hasn’t yet been told which member you are, so it can’t record your attendance. Pick your name once and it will remember.')}
 
         <div class="stats">
@@ -1032,7 +1032,7 @@ const App = {
     }
     this._editDining = null;
     save(); this.renderShell(); doSync(true);
-    toast('Booking saved — the Secretary sees it on the next sync.');
+    toast('Booking saved — it reaches those arranging the Festive Board on the next sync.');
   },
 
   setAttend(mid, memberId, status){
@@ -1055,7 +1055,7 @@ const App = {
   },
 
   /* ---------- meeting documents: summons, table plan and the like ----------
-     Everyone can read them; only the Secretary and those he has permitted may
+     Everyone can read them; only the app administrator and those he has permitted may
      add or remove. Files themselves live in the private data repository, the
      same place notice attachments go. */
   filesCard(m){
@@ -1073,7 +1073,7 @@ const App = {
             <button class="btn ghost sm" style="flex:none;" onclick="App.fileOpen('${m.id}','${f.id}')">Open</button>
             ${manage?`<button class="btn danger sm" style="flex:none;" onclick="App.fileDel('${m.id}','${f.id}')" aria-label="Remove ${esc(f.name)}">✕</button>`:''}
           </div>`).join('')
-        : `<div class="muted small">No documents yet${manage?' — add the summons, the table plan or anything else the brethren need.':'. The Secretary puts the summons and table plan here.'}</div>`}
+        : `<div class="muted small">No documents yet${manage?' — add the summons, the table plan or anything else the brethren need.':'. The app administrator puts the summons and table plan here.'}</div>`}
         ${manage? `
         <div class="row" style="margin-top:12px;">
           <input type="file" id="mf_files_${m.id}" multiple style="max-width:260px;">
@@ -1085,11 +1085,11 @@ const App = {
   },
   async filesAdd(mid){
     const m = store.meetings[mid]; if(!m) return;
-    if(!canManage()){ toast('Only the Secretary and those he has permitted can add documents.', true); return; }
+    if(!canManage()){ toast('Only the app administrator and those he has permitted can add documents.', true); return; }
     const input = document.getElementById('mf_files_'+mid);
     const chosen = [...(input.files||[])];
     if(!chosen.length){ toast('Choose a file first.', true); return; }
-    if(!session.token){ toast('Documents need sync to be activated — ask the Secretary.', true); return; }
+    if(!session.token){ toast('Documents need sync to be activated — ask the app administrator.', true); return; }
     const btn = document.getElementById('mf_btn_'+mid);
     if(btn){ btn.disabled = true; btn.textContent = 'Uploading…'; }
     let added = 0, failed = [];
@@ -1123,7 +1123,7 @@ const App = {
     }catch(e){ toast('Could not open that document: '+e.message, true); }
   },
   async fileDel(mid, fid){
-    if(!canManage()){ toast('Only the Secretary and those he has permitted can remove documents.', true); return; }
+    if(!canManage()){ toast('Only the app administrator and those he has permitted can remove documents.', true); return; }
     const f = ((store.meetings[mid]||{}).files||[]).find(x=>x.id===fid);
     if(!f || !confirm('Remove “'+f.name+'” from this meeting?')) return;
     f.deleted = true; f.updatedAt = now();
@@ -1132,7 +1132,7 @@ const App = {
     catch(e){ /* the record is gone either way; a stray blob is harmless */ }
   },
 
-  /* ---------- the Secretary's dining list ---------- */
+  /* ---------- the app administrator's dining list ---------- */
   diningRows(m){
     const rows = [];
     Object.keys(m.attend||{}).forEach(id=>{
@@ -1202,10 +1202,10 @@ const App = {
                       r.paidOn?'transfer sent '+fmtDate(r.paidOn):''].filter(Boolean).join(' · ')),
     ].filter(x=>x!==undefined).join('\n');
   },
-  /* the Secretary recording a choice for a brother who replied by telephone or
+  /* the app administrator recording a choice for a brother who replied by telephone or
      on the old Google form */
   setDiningField(mid, scope, key, field, value){
-    if(!canManage()){ toast('Only the Secretary and those he has permitted can change this.', true); return; }
+    if(!canManage()){ toast('Only the app administrator and those he has permitted can change this.', true); return; }
     const m = store.meetings[mid]; if(!m) return;
     if(scope==='m'){
       m.attend = m.attend||{};
@@ -1374,7 +1374,7 @@ const App = {
           <button class="btn ghost sm" onclick="App.committeeAddOutside('${id}')">Add non-member</button>
         </div>
         <div class="muted small" style="margin-top:8px;">Members' contact details come from the Members list. * marks someone who is not a lodge member.</div>
-        ` : `<div class="muted small" style="margin-top:8px;">Only the Secretary (and those given permission in Settings) can change the committee. * marks someone who is not a lodge member.</div>`}
+        ` : `<div class="muted small" style="margin-top:8px;">Only the app administrator (and those given permission in Settings) can change the committee. * marks someone who is not a lodge member.</div>`}
       </div>
       <div class="card"><h4>Event details</h4>
         <div class="grid2 small">
@@ -1431,7 +1431,7 @@ const App = {
   /* ================= SUBSCRIPTIONS =================
      One record per member per season, id = memberId|season, so two devices
      editing different brethren never collide. Figures are visible only to the
-     Secretary/Treasurer and anyone given permission; everyone else sees his own. */
+     administrator and anyone given permission; everyone else sees his own. */
   subFor(memberId, season){
     const id = memberId+'|'+season;
     let r = (store.subs||[]).find(x=>x.id===id);
@@ -1457,7 +1457,7 @@ const App = {
             : `<p><b>Not yet recorded as paid.</b>${rate?' The subscription for this season is £'+esc(rate)+'.':''}</p>
                <p class="small muted">If you have paid, let the Treasurer know — he records it here.</p>`}
         </div>
-        <div class="card"><p class="small muted">The full subscriptions list is visible to the Secretary and Treasurer only.</p></div>`;
+        <div class="card"><p class="small muted">The full subscriptions list is visible to the app administrator and those he has permitted only.</p></div>`;
     }
 
     const ms = sortedMembers();
@@ -1516,7 +1516,7 @@ const App = {
     </div>`;
   },
   subPaid(memberId, season, paid){
-    if(!canManage()){ toast('Only the Secretary and Treasurer can record subscriptions.', true); return; }
+    if(!canManage()){ toast('Only the app administrator and those he has permitted can record subscriptions.', true); return; }
     const r = this.subFor(memberId, season);
     r.paid = !!paid; r.updatedAt = now();
     if(paid){
@@ -1526,14 +1526,14 @@ const App = {
     save(); this.renderShell(); doSync(true);
   },
   subField(memberId, season, field, value){
-    if(!canManage()){ toast('Only the Secretary and Treasurer can record subscriptions.', true); return; }
+    if(!canManage()){ toast('Only the app administrator and those he has permitted can record subscriptions.', true); return; }
     const r = this.subFor(memberId, season);
     r[field] = value.trim ? value.trim() : value; r.updatedAt = now();
     save(); this.refreshSubsStats(season);   // totals update without disturbing the field being edited
     doSync(true); toast('Saved.');
   },
   saveSubsRate(v){
-    if(!canManage()){ toast('Only the Secretary and Treasurer can change this.', true); return; }
+    if(!canManage()){ toast('Only the app administrator and those he has permitted can change this.', true); return; }
     store.subsRate = {amount:v.trim(), updatedAt:now()};
     save(); this.renderShell(); doSync(true); toast('Saved.');
   },
@@ -1793,7 +1793,7 @@ const App = {
         <img src="./logo.jpg" alt="">
         <p><b>Waiting for the lodge Google account.</b><br>
         Once it is set up, a shared Google Photos album will be linked here — everyone will be able to view and add photos, filtered by date and event.</p>
-        <p class="small muted">The Secretary can paste the album link in Settings when it's ready.</p>
+        <p class="small muted">The app administrator can paste the album link in Settings when it's ready.</p>
       </div>`}`;
   },
 
@@ -1851,7 +1851,7 @@ const App = {
         </div>
       </div>` : (!ownerMember()? `
       <div class="card"><h4>Permissions</h4>
-        <p class="small">Setup note: once the Secretary's own member record (with his email address) is in the Members list, committee changes lock down to him and anyone he grants permission to in this section.</p>
+        <p class="small">Setup note: once the app administrator's own member record (with his email address) is in the Members list, committee changes lock down to him and anyone he grants permission to in this section.</p>
       </div>`:'')}
       <div class="card"><h4>Photos album link</h4>
         <p class="small">Paste the shared Google Photos album link here once the lodge Google account exists.</p>
@@ -1868,7 +1868,7 @@ const App = {
         </div>
       </div>
       <div class="card"><h4>Passcode</h4>
-        <p class="small muted">The lodge passcode is shared by all members. To change it, ask the Secretary to update the app.</p>
+        <p class="small muted">The lodge passcode is shared by all members. To change it, ask the app administrator to update the app.</p>
       </div>`;
   },
   async enablePush(){
@@ -1893,12 +1893,12 @@ const App = {
   },
   permAdd(){
     const v=$('#pm_member').value; if(!v) return;
-    if(!isOwner()){ toast('Only the Secretary can change permissions.', true); return; }
+    if(!isOwner()){ toast('Only the app administrator can change permissions.', true); return; }
     store.perms.managers=(store.perms.managers||[]); store.perms.managers.push(v); store.perms.updatedAt=now();
     save(); this.renderShell(); toast('Permission granted.'); doSync(true);
   },
   permDel(mid){
-    if(!isOwner()){ toast('Only the Secretary can change permissions.', true); return; }
+    if(!isOwner()){ toast('Only the app administrator can change permissions.', true); return; }
     store.perms.managers=(store.perms.managers||[]).filter(x=>x!==mid); store.perms.updatedAt=now();
     save(); this.renderShell(); toast('Permission removed.'); doSync(true);
   },
@@ -1907,7 +1907,7 @@ const App = {
     const v = (($('#me_email')||{}).value||'').trim().toLowerCase();
     if(!v){ toast('Type your email address first.', true); return; }
     const m = store.members.find(x=>!x.deleted && (x.email||'').trim().toLowerCase()===v);
-    if(!m){ toast('That address isn’t on the members list. Check it, or ask the Secretary to add it to your record.', true); return; }
+    if(!m){ toast('That address isn’t on the members list. Check it, or ask the app administrator to add it to your record.', true); return; }
     session.memberId = m.id;
     session.name = m.name;          // attribute future tasks and messages to the name in the list
     session.verified = true; session.picking = false;
@@ -1989,8 +1989,8 @@ function renderLogin(step, err){
             <div class="namelist">
               ${noEmail.map(m=>`<button onclick="pickName('${jsq(m.name)}','${m.id}')">${esc(m.name)}</button>`).join('')}
             </div>
-            <div class="small muted" style="margin-top:10px;text-align:left;">Only brethren whose email address the lodge does not hold are listed. Ask the Secretary to add yours so the app can recognise you properly.</div>`
-          : `<div class="small muted" style="padding:12px;">Every member on the list has an email address recorded, so please sign in with yours. If the lodge has the wrong address for you, ask the Secretary.</div>`;
+            <div class="small muted" style="margin-top:10px;text-align:left;">Only brethren whose email address the lodge does not hold are listed. Ask the app administrator to add yours so the app can recognise you properly.</div>`
+          : `<div class="small muted" style="padding:12px;">Every member on the list has an email address recorded, so please sign in with yours. If the lodge has the wrong address for you, ask the app administrator.</div>`;
         })()}
         <div class="err">${esc(err||'')}</div>
         <button class="btn ghost" style="width:100%;margin-top:10px;" onclick="renderLogin('who')">← Back</button>
@@ -2014,7 +2014,7 @@ function renderLogin(step, err){
 let pendingToken = null;
 async function tryPass(){
   const v = $('#lg_pass').value;
-  if(await sha256(v) !== PASS_HASH){ renderLogin('pass','That passcode isn’t right — check with the Secretary.'); return; }
+  if(await sha256(v) !== PASS_HASH){ renderLogin('pass','That passcode isn’t right — check with the app administrator.'); return; }
   pendingToken = await decryptToken(v);
   if(new URLSearchParams(location.search).has('form')) renderMemberForm();
   else renderLogin('who');
@@ -2024,7 +2024,7 @@ function signInByEmail(){
   const v = ($('#lg_email').value||'').trim().toLowerCase();
   if(!v){ renderLogin('who','Please enter your email address.'); return; }
   const m = store.members.find(x=>!x.deleted && (x.email||'').trim().toLowerCase()===v);
-  if(!m){ renderLogin('who','That address isn’t on the members list. Check it, or ask the Secretary to add it to your record.'); return; }
+  if(!m){ renderLogin('who','That address isn’t on the members list. Check it, or ask the app administrator to add it to your record.'); return; }
   session = {name:m.name, memberId:m.id, verified:true, token:pendingToken, until: now()+30*864e5};
   setSession(session);
   App.renderShell();
@@ -2068,7 +2068,7 @@ async function submitMemberForm(){
   const name=$('#fm_name').value.trim(), phone=$('#fm_phone').value.trim(),
         email=$('#fm_email').value.trim(), rank=$('#fm_rank').value, office=$('#fm_office').value;
   if(!name){ $('#fm_err').textContent='Please enter your name.'; return; }
-  if(!pendingToken){ $('#fm_err').textContent='The form isn’t connected yet — please reply to the Secretary with your details instead.'; return; }
+  if(!pendingToken){ $('#fm_err').textContent='The form isn’t connected yet — please reply to the app administrator with your details instead.'; return; }
   try{
     const payload={name, phone, email, rank, office, at:now()};
     const tmp = session; session={token:pendingToken};
