@@ -2027,8 +2027,13 @@ function renderLogin(step, err){
 }
 let pendingToken = null;
 async function tryPass(){
-  const v = $('#lg_pass').value;
-  if(await sha256(v) !== PASS_HASH){ renderLogin('pass','That passcode isn’t right — check with the app administrator.'); return; }
+  // trimmed: pasting from an email or a message very often brings a space or a
+  // line break with it, and the brother has no way of seeing why he was refused
+  const v = $('#lg_pass').value.trim();
+  if(await sha256(v) !== PASS_HASH){
+    renderLogin('pass','That passcode isn’t right. It is case-sensitive — check the capital letter at the start and the symbol at the end.');
+    return;
+  }
   pendingToken = await decryptToken(v);
   if(new URLSearchParams(location.search).has('form')) renderMemberForm();
   else renderLogin('who');
