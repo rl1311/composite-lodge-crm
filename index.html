@@ -443,6 +443,14 @@ function buildNotifications(){
     if(notMe(c.who) && textMentions(c.text, session.name))
       push('ec_'+c.id,'💬', `${c.who} tagged you in the “${e.name}” chat: “${c.text}”`, c.at, 'events', e.id);
   }));
+  // details arriving from the members' form — for whoever looks after the app
+  if(canManage()) store.members.filter(m=>!m.deleted && m.viaForm && m.formAt).forEach(m=>{
+    const isNew = m.joinedAt && m.joinedAt === m.formAt;
+    push('mb_'+m.id+'|'+m.formAt, '📝',
+      isNew ? `${m.name} sent his details — he can sign in now`
+            : `${m.name} updated his details`,
+      m.formAt, 'members', null);
+  });
   // meeting documents — everyone but whoever added them
   Object.values(store.meetings).forEach(m=>(m.files||[]).forEach(f=>{
     if(f.deleted || !notMe(f.by)) return;
@@ -593,6 +601,8 @@ function notifyIds(s){
   (s.events||[]).forEach(e=>{ (e.todos||[]).forEach(todo); (e.chat||[]).forEach(c=>ids.add('c'+c.id)); });
   (s.lodgeChat||[]).forEach(c=>ids.add('c'+c.id));
   (s.notices||[]).forEach(n=>ids.add('n'+n.id));
+  // details arriving from the members' form; the timestamp makes an update count too
+  (s.members||[]).forEach(m=>{ if(!m.deleted && m.viaForm && m.formAt) ids.add('mb'+m.id+'|'+m.formAt); });
   // a Festive Board booking is worth waking the app administrator for; changing an
   // existing one is not, so the id deliberately carries no timestamp
   Object.values(s.meetings||{}).forEach(m=>{
@@ -635,8 +645,12 @@ async function doSync(silent){
           try{
             const m = JSON.parse(b64decode(f.content));
             const existing = merged.members.find(x=>!x.deleted && x.email && m.email && x.email.toLowerCase()===m.email.toLowerCase());
-            if(existing){ Object.assign(existing, {name:m.name, phone:m.phone, email:m.email, rank:m.rank, office:m.office, updatedAt:now()}); }
-            else merged.members.push({id:uid(), name:m.name, phone:m.phone, email:m.email, rank:m.rank, office:m.office, updatedAt:now()});
+            // formAt marks details that arrived from a brother rather than being
+            // typed in here, so the administrator can be told they have landed
+            if(existing){ Object.assign(existing, {name:m.name, phone:m.phone, email:m.email, rank:m.rank,
+                            office:m.office, viaForm:true, formAt:now(), updatedAt:now()}); }
+            else merged.members.push({id:uid(), name:m.name, phone:m.phone, email:m.email, rank:m.rank, office:m.office,
+                            viaForm:true, joinedAt:now(), formAt:now(), updatedAt:now()});
           }catch(e){}
           await ghDelete('submissions/'+s.name, f.sha, 'Merged member form submission');
         }
